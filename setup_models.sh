@@ -13,13 +13,15 @@ fi
 if [ -f ".gitmodules" ]; then
     echo "Initializing git submodules..."
     git submodule update --init --recursive
+fi
+
+# Double check: if VideoPose3D is still missing (e.g. not a real git repo), clone it manually
+if [ ! -f "./third_party/VideoPose3D/common/model.py" ]; then
+    echo "VideoPose3D code missing. Cloning manually into third_party/VideoPose3D..."
+    rm -rf ./third_party/VideoPose3D
+    git clone https://github.com/facebookresearch/VideoPose3D ./third_party/VideoPose3D
 else
-    # If not a git repo, we try to clone it manually if missing
-    if [ ! -f "./third_party/VideoPose3D/common/model.py" ]; then
-        echo "No .gitmodules found and VideoPose3D missing. Cloning manually..."
-        rm -rf ./third_party/VideoPose3D
-        git clone https://github.com/facebookresearch/VideoPose3D ./third_party/VideoPose3D
-    fi
+    echo "VideoPose3D already present."
 fi
 
 # 2. Pretrained Models
