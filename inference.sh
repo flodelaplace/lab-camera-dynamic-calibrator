@@ -15,9 +15,10 @@ GID=${4}
 TARGET=${5} 
 MODEL=${6}
 DATASET=${7}
-echo "Inference by VideoPose3D"
+DEVICE=${8:-cuda}
+echo "Inference by VideoPose3D (Device: ${DEVICE})"
 
-python3 inference.py --prefix ${PREFIX} --aid ${AID} --pid ${PID} --gid ${GID} --target ${TARGET} --dataset ${DATASET} --model ${MODEL}
+python3 inference.py --prefix ${PREFIX} --aid ${AID} --pid ${PID} --gid ${GID} --target ${TARGET} --dataset ${DATASET} --model ${MODEL} --device ${DEVICE}
 
 
 

@@ -47,6 +47,7 @@ def parse_args(predefined_args=None):
     )
 
     parser.add_argument("--vis_type", type=str, default="2d")
+    parser.add_argument("--device", type=str, default="cuda", choices=["cuda", "cpu"], help="Device to use (cuda or cpu)")
     
     # Arguments for chunking
     parser.add_argument("--frame_start", type=int, default=None, help="Start frame for chunk processing.")

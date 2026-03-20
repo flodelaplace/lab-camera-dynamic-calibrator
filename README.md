@@ -30,6 +30,13 @@ bash setup_models.sh
 ```
 *(Note: This script will automatically clone VideoPose3D into `./third_party/VideoPose3D` if it's missing, and download the necessary weights into `./model/`).*
 
+### 💡 WSL2 & GPU Support
+If you are running this pipeline in **WSL2** and encounter issues with CUDA (e.g., `libcuda.so` not found), ensure your library path includes the Windows-side drivers:
+```bash
+export LD_LIBRARY_PATH=/usr/lib/wsl/lib:$LD_LIBRARY_PATH
+```
+You can add this line to your `~/.bashrc` to make it permanent.
+
 ## 3. Fast Demo Setup 🚀
 
 Want to test the pipeline right away? A demo dataset with 4 synchronized videos and a base `Calib_scene.toml` is provided in the `demo/` folder.

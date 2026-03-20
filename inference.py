@@ -103,7 +103,7 @@ def draw_skeleton(x2d_op, x2d_coco, aid, pid, gid, out_dir, width, height):
     )
 
 
-def load_model(model):
+def load_model(model, use_cuda=True):
     model_pos = TemporalModel(
         17,
         2,
@@ -115,7 +115,7 @@ def load_model(model):
         dense=False,
     )
 
-    if torch.cuda.is_available():
+    if use_cuda and torch.cuda.is_available():
         model_pos = model_pos.cuda()
 
     checkpoint = torch.load(
@@ -138,6 +138,7 @@ def evaluate(
     kps_right,
     joints_left,
     joints_right,
+    use_cuda=True,
     action=None,
     return_predictions=False,
 ):
@@ -147,7 +148,7 @@ def evaluate(
         for _, batch, batch_2d in test_generator.next_epoch():
 
             inputs_2d = torch.from_numpy(batch_2d.astype("float32"))
-            if torch.cuda.is_available():
+            if use_cuda and torch.cuda.is_available():
                 inputs_2d = inputs_2d.cuda()
 
             # Positional model
@@ -166,7 +167,7 @@ def evaluate(
                 return predicted_3d_pos.squeeze(0).cpu().numpy()
 
 
-def inference(x2d_coco, width, height, model):
+def inference(x2d_coco, width, height, model, use_cuda=True):
 
     x2d_coco[..., :2] = normalize_screen_coordinates(
         x2d_coco[..., :2], w=width, h=height
@@ -174,7 +175,7 @@ def inference(x2d_coco, width, height, model):
     input_keypoints = x2d_coco.copy()
     # model_pos, pad, causal_shift = load_model(args)
 
-    model_pos, pad, causal_shift = load_model(model)
+    model_pos, pad, causal_shift = load_model(model, use_cuda=use_cuda)
     gen = UnchunkedGenerator(
         None,
         None,
@@ -194,6 +195,7 @@ def inference(x2d_coco, width, height, model):
         kps_right,
         joints_left,
         joints_right,
+        use_cuda=use_cuda,
         return_predictions=True,
     )
 
@@ -247,6 +249,7 @@ def inference_main(
     width,
     height,
     model,
+    use_cuda=True,
 ):
 
     frames, x2d, s2d = load_poses(
@@ -257,7 +260,7 @@ def inference_main(
     x2d_op = x2d.reshape(len(frames), len(OP_KEY), 2)
     x2d_coco = convert_op_to_coco(x2d_op).astype("float32")
     draw_skeleton(x2d_op[0], x2d_coco[0], aid, pid, gid, prefix, width, height)
-    prediction = inference(x2d_coco, width, height, model)
+    prediction = inference(x2d_coco, width, height, model, use_cuda=use_cuda)
     save_json(prefix, prediction, frames, aid, pid, gid, cid)
 
     if os.path.isfile(input_video_path):
@@ -271,7 +274,15 @@ def inference_main(
 if __name__ == "__main__":
 
     args = argument.parse_args()
-    select_gpu()
+    
+    use_cuda = (args.device == "cuda")
+    if use_cuda:
+        try:
+            select_gpu()
+        except Exception as e:
+            print(f"Warning: GPU selection failed ({e}). Falling back to CPU mode.")
+            use_cuda = False
+    
     PREFIX = args.prefix + "/" + args.target
     AID = args.aid
     PID = args.pid
@@ -304,6 +315,7 @@ if __name__ == "__main__":
             width,
             height,
             model,
+            use_cuda=use_cuda,
         )
 
     # print(output_video_path)

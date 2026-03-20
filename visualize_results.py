@@ -264,10 +264,14 @@ def main():
         config = yaml.safe_load(f)
     
     base_name = os.path.basename(os.path.normpath(args.prefix))
-    parts = base_name.split('_')
-    aid = int(parts[0][1:])
-    pid = int(parts[1][1:])
-    gid = int(parts[2][1:])
+    import re
+    match = re.search(r'A(\d+)_P(\d+)_G(\d+)', base_name)
+    if match:
+        aid, pid, gid = int(match.group(1)), int(match.group(2)), int(match.group(3))
+    else:
+        # Fallback for folder names that don't follow the Axxx_Pxxx_Gxxx convention
+        print(f"WARNING: Output directory '{base_name}' does not match Axxx_Pxxx_Gxxx format. Using default IDs (AID=1, PID=1, GID=1).")
+        aid, pid, gid = 1, 1, 1
     
     camera_ids = config[args.dataset]["camera_ids"]
 
