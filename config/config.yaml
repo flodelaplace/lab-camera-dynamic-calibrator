@@ -1,0 +1,171 @@
+GAFA:
+  available_joints:
+  - 0
+  - 1
+  - 2
+  - 3
+  - 4
+  - 5
+  - 6
+  - 7
+  - 8
+  - 9
+  - 10
+  - 11
+  - 12
+  - 13
+  - 14
+  - 15
+  camera_ids:
+  - 1
+  - 2
+  - 5
+  - 6
+  - 7
+  frame_rate: 30
+  height: 2028
+  ransac_th_2d: 150.0
+  ransac_th_3d: 10.0
+  scale: 1
+  width: 2704
+H36M:
+  available_joints:
+  - 0
+  - 1
+  - 2
+  - 3
+  - 4
+  - 5
+  - 6
+  - 7
+  - 8
+  - 9
+  - 10
+  - 11
+  - 12
+  - 13
+  - 14
+  - 15
+  - 16
+  - 17
+  - 18
+  camera_ids:
+  - 1
+  - 2
+  - 3
+  - 4
+  frame_rate: 50
+  height: 1002
+  ransac_th_2d: 100.0
+  ransac_th_3d: 10.0
+  scale: 1
+  width: 1000
+MyDataset:
+  available_joints:
+  - 0
+  - 1
+  - 2
+  - 3
+  - 4
+  - 5
+  - 6
+  - 7
+  - 8
+  - 9
+  - 10
+  - 11
+  - 12
+  - 13
+  - 14
+  camera_ids:
+  - 1
+  - 2
+  - 3
+  - 4
+  - 5
+  - 6
+  - 7
+  - 8
+  frame_rate: 30
+  height: 1080
+  ransac_th_2d: 200.0
+  ransac_th_3d: 1.0
+  scale: 1
+  width: 1920
+Panoptic:
+  available_joints:
+  - 0
+  - 1
+  - 2
+  - 3
+  - 4
+  - 5
+  - 6
+  - 7
+  - 8
+  - 9
+  - 10
+  - 11
+  - 12
+  - 13
+  - 14
+  - 15
+  - 16
+  - 17
+  - 18
+  camera_ids:
+  - 3
+  - 12
+  - 18
+  - 22
+  frame_rate: 30
+  height: 1080
+  ransac_th_2d: 100.0
+  ransac_th_3d: 10.0
+  scale: 1
+  width: 1920
+RETRAIN:
+  data_2d_h36m: ./third_party/H36M/retrain/data_2d_h36m_detectron_pt_coco.npz
+  data_3d_h36m: ./third_party/H36M/retrain/data_3d_h36m.npz
+SynADL:
+  available_joints:
+  - 0
+  - 1
+  - 2
+  - 3
+  - 4
+  - 5
+  - 6
+  - 7
+  - 8
+  - 9
+  - 10
+  - 11
+  - 12
+  - 13
+  - 14
+  - 15
+  - 16
+  - 17
+  - 18
+  - 19
+  - 20
+  - 21
+  - 22
+  - 22
+  - 23
+  - 24
+  camera_ids:
+  - 21
+  - 23
+  - 25
+  - 27
+  frame_rate: 20
+  height: 360
+  ransac_th_2d: 50.0
+  ransac_th_3d: 5.0
+  scale: 0.01
+  width: 640
+aid: 1
+gid: 1
+pid: 15

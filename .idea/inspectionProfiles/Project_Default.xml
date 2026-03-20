@@ -1,0 +1,27 @@
+<component name="InspectionProjectProfileManager">
+  <profile version="1.0">
+    <option name="myName" value="Project Default" />
+    <inspection_tool class="PyCompatibilityInspection" enabled="true" level="WARNING" enabled_by_default="true">
+      <option name="ourVersions">
+        <value>
+          <list size="6">
+            <item index="0" class="java.lang.String" itemvalue="3.10" />
+            <item index="1" class="java.lang.String" itemvalue="3.11" />
+            <item index="2" class="java.lang.String" itemvalue="3.12" />
+            <item index="3" class="java.lang.String" itemvalue="3.13" />
+            <item index="4" class="java.lang.String" itemvalue="3.14" />
+            <item index="5" class="java.lang.String" itemvalue="3.15" />
+          </list>
+        </value>
+      </option>
+    </inspection_tool>
+    <inspection_tool class="PyStubPackagesAdvertiser" enabled="true" level="WARNING" enabled_by_default="true">
+      <option name="ignoredPackages">
+        <list>
+          <option value="pandas" />
+          <option value="scipy" />
+        </list>
+      </option>
+    </inspection_tool>
+  </profile>
+</component>
