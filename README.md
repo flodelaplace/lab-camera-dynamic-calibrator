@@ -8,15 +8,15 @@ The pipeline automatically processes multiple synchronized video streams to comp
 
 ```mermaid
 graph TD
-    A[Multiple Videos] --> B[1. 2D Pose Estimation <br/>(RTMPose)]
-    B --> C[2. 2D Pose Normalization]
-    C --> D[3. 3D Pose Lifting <br/>(VideoPose3D)]
-    D --> E[4. Linear Extrinsic Calibration]
-    E --> F[5. Bundle Adjustment <br/>(Refinement)]
-    F --> G[6. World Scaling & Orientation]
-    G --> H[Final Calib.toml & <br/>3D Visualization]
+    A[Multiple Videos] --> B("1. 2D Pose Estimation <br/>(RTMPose)")
+    B --> C("2. 2D Pose Normalization")
+    C --> D("3. 3D Pose Lifting <br/>(VideoPose3D)")
+    D --> E("4. Linear Extrinsic Calibration")
+    E --> F("5. Bundle Adjustment <br/>(Refinement)")
+    F --> G("6. World Scaling & Orientation")
+    G --> H("Final Calib.toml & <br/>3D Visualization")
     
-    I[Intrinsics Calib_scene.toml] -.-> E
+    I("Intrinsics Calib_scene.toml") -.-> E
 ```
 
 ### 🛠️ How it Works
