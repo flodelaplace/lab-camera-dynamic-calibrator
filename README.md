@@ -1,10 +1,39 @@
 # Dynamic Extrinsic Camera Calibrator
 
+This repository provides a complete pipeline for **Extrinsic Camera Calibration from a Moving Person**. It leverages human pose estimation to calibrate cameras without needing a checkerboard or specialized patterns.
+
+### 🎥 Pipeline Overview
+
+The pipeline automatically processes multiple synchronized video streams to compute the extrinsic parameters (R, t) of all cameras, scaling them to a real-world coordinate system.
+
+```mermaid
+graph TD
+    A[Multiple Videos] --> B[1. 2D Pose Estimation <br/>(RTMPose)]
+    B --> C[2. 2D Pose Normalization]
+    C --> D[3. 3D Pose Lifting <br/>(VideoPose3D)]
+    D --> E[4. Linear Extrinsic Calibration]
+    E --> F[5. Bundle Adjustment <br/>(Refinement)]
+    F --> G[6. World Scaling & Orientation]
+    G --> H[Final Calib.toml & <br/>3D Visualization]
+    
+    I[Intrinsics Calib_scene.toml] -.-> E
+```
+
+### 🛠️ How it Works
+
+1.  **Pose Detection**: We use **RTMPose** to detect 2D joints of a person moving in the scene across all camera views.
+2.  **Lifting**: Those 2D detections are "lifted" into 3D space using **VideoPose3D** to get a canonical 3D skeleton.
+3.  **Calibration**: By matching the 3D skeleton to the 2D detections in each camera, the system computes the relative position and orientation of every camera.
+4.  **Scaling**: Finally, the scene is oriented and scaled using the person's height and a reference frame, resulting in a standard TOML calibration file.
+
+---
+
+## ✨ Key Improvements & Features
+
 This repository is an improved and customized version of [Extrinsic Camera Calibration From a Moving Person](https://github.com/kyotovision-public/extrinsic-camera-calibration-from-a-moving-person) (IROS 2022 and RA-L). 
 
 While the core optimization engine for calculating extrinsic parameters is preserved, several major improvements and modernizations have been integrated into this pipeline:
 
-## ✨ Key Improvements & Features
 * **Modern 2D Pose Estimation**: Replaced Detectron with **RTMPose** (via `rtmlib`) for faster and more accurate 2D joint detection.
 * **3D Pose Lifting**: We continue to use **VideoPose3D** for 2D-to-3D pose lifting.
 * **Streamlined Optimization**: Focuses on **Linear** and **Linear Bundle Adjustment** for the extrinsic parameter calculation (RANSAC is available in the codebase but removed from the main pipeline).
