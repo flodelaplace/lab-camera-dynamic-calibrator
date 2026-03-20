@@ -36,7 +36,7 @@ dependencies:
 
     # --- Utilities ---
     - tomli # To open config .toml (for Python 3.8 to 3.10)
-    - nvgpu-py # For automatic selection GPU
+    - nvgpu # For automatic selection GPU
     - imageio==2.22.2
     - networkx
     - tabulate
