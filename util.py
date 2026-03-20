@@ -141,7 +141,7 @@ OP_BONE = np.array(
         [OP_KEY["LHip"], OP_KEY["LKnee"]],
         [OP_KEY["LKnee"], OP_KEY["LAnkle"]],
     ],
-    dtype=np.int,
+    dtype=int,
 )
 
 
@@ -266,7 +266,7 @@ def triangulate_all(K_list, R_w2c_list, t_w2c_list, p2d_CxNx2, mask_CxN):
     assert t_w2c_list.shape == (Nc, 3, 1)
     assert p2d_CxNx2.shape == (Nc, Np, 2)
     assert mask_CxN.shape == (Nc, Np)
-    assert mask_CxN.dtype == np.bool
+    assert mask_CxN.dtype == bool
 
     P_est = []
     for i in range(Nc):
@@ -378,7 +378,7 @@ def load_eldersim_camera(filename):
     with open(filename, "r") as fp:
         cameras = json.load(fp)
 
-    CAMID = np.array(cameras["CAMID"], dtype=np.int)
+    CAMID = np.array(cameras["CAMID"], dtype=int)
     K = np.array(cameras["K"], dtype=np.float64)
     R_w2c = np.array(cameras["R_w2c"], dtype=np.float64)
     t_w2c = np.array(cameras["t_w2c"], dtype=np.float64)
@@ -393,7 +393,7 @@ def load_eldersim_skeleton_w(filename):
     with open(filename, "r") as fp:
         skeleton = json.load(fp)
         p3d_w = np.array(skeleton["skeleton"], dtype=np.float64)
-        frames = np.array(skeleton["frame_indices"], dtype=np.int)
+        frames = np.array(skeleton["frame_indices"], dtype=int)
 
     assert len(p3d_w) == len(frames)
 
@@ -452,7 +452,8 @@ def load_eldersim(dirname, gid, aid, pid, joint2d_dir="2d_joint"):
         p3d_all.append(p3d.reshape((-1, 25, 3)))
         s3d_all.append(s3d)
 
-        assert np.alltrue(f2d == f3d)
+        # Use np.array_equal instead of np.alltrue to prevent deprecation issues
+        assert np.array_equal(f2d, f3d)
 
     # check frames
     f2d_common = functools.reduce(np.intersect1d, [frames, *f2d_all])
@@ -501,7 +502,7 @@ def joints2orientations(p3d_CxNxJx3, mask_CxNxJ, bones_Jx2):
     assert p3d_CxNxJx3.shape[3] == 3
     assert mask_CxNxJ.shape == (C, N, J)
     assert bones_Jx2.shape[1] == 2
-    assert mask_CxNxJ.dtype == np.bool
+    assert mask_CxNxJ.dtype == bool
 
     p3d_CxNxJx3 = np.copy(p3d_CxNxJx3)
 
@@ -534,7 +535,7 @@ def joints2orientations(p3d_CxNxJx3, mask_CxNxJ, bones_Jx2):
     # normalize
     norm = np.linalg.norm(dirs, axis=2)
     # print(norm.shape)
-    assert np.alltrue(norm > 0)
+    assert np.all(norm > 0)
     dirs = dirs / norm[:, :, None]
     # print(dirs.shape)
 
@@ -551,7 +552,7 @@ def joints2projections(p2d_CxNxJx2, mask_CxNxJ, joints_J):
     J = p2d_CxNxJx2.shape[2]
     assert p2d_CxNxJx2.shape[3] == 2
     assert mask_CxNxJ.shape == (C, N, J)
-    assert mask_CxNxJ.dtype == np.bool
+    assert mask_CxNxJ.dtype == bool
 
     # fill occluded joints by NaN
     p2d_CxNxJx2[~mask_CxNxJ] = np.nan
