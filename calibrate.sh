@@ -185,6 +185,7 @@ echo "[3/7] Mise à jour de la configuration..."
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 python3 - << PYEOF
 import yaml, json, sys, os, glob, re
+script_dir = os.getcwd() # Ou utiliser un chemin plus robuste si nécessaire
 output_dir, subset, calib_toml, aid, pid, gid = "${OUTPUT_DIR}", "${SUBSET}", "${CALIB_TOML}", ${AID}, ${PID}, ${GID}
 cam_file = os.path.join(output_dir, subset, f"cameras_G{gid:03d}.json")
 with open(cam_file) as f: n_cams = len(json.load(f)["CAMID"])

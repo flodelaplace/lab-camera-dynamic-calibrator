@@ -1,8 +1,21 @@
 #!/bin/bash
 
-# This script downloads the required pretrained models for VideoPose3D
-# RTMPose models are handled automatically by rtmlib during the first run.
+# 1. VideoPose3D
+# Please prepare VideoPose3D in ./third_party/VideoPose3D/ directory.
+# If it's a git repo, you can use: git submodule update --init --recursive
+# Otherwise, we ensure the directory exists and try to initialize it if it's a submodule.
 
+if [ ! -d "./third_party/VideoPose3D" ]; then
+    echo "Creating third_party directory..."
+    mkdir -p ./third_party
+fi
+
+if [ -f ".gitmodules" ]; then
+    echo "Initializing git submodules..."
+    git submodule update --init --recursive
+fi
+
+# 2. Pretrained Models
 mkdir -p ./model
 cd ./model
 

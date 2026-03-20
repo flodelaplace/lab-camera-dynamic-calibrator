@@ -38,7 +38,7 @@ You can run the full calibration on this demo dataset in one single command:
 
 ```bash
 bash ./calibrate.sh \
-    "demo/videos" \
+    "demo/" \
     "demo/Calib_scene.toml" \
     "./output/demo_calibration" \
     "cuda" \

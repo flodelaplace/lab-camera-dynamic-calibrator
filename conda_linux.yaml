@@ -11,6 +11,7 @@ dependencies:
   - pytorch::pytorch=1.13.1
   - pytorch::torchvision=0.14.1
   - pytorch::pytorch-cuda=11.7 # Assure la compatibilité CUDA pour PyTorch
+  - mkl=2024.0.0  # Fixes "undefined symbol: iJIT_NotifyEvent" bug in some PyTorch builds
 
   # --- Scientific & Data Handling ---
   - numpy

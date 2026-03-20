@@ -31,8 +31,12 @@ import mpl_toolkits.mplot3d.art3d as art3d
 import yaml
 
 # ── chemin vers pycalib ──────────────────────────────────────────────────────
-sys.path.insert(0, os.path.abspath("./"))
-sys.path.insert(0, os.path.abspath("./third_party/VideoPose3D"))
+script_dir = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, script_dir)
+
+# Obtenir le chemin absolu du script actuel pour localiser VideoPose3D
+vp3d_path = os.path.join(script_dir, "third_party", "VideoPose3D")
+sys.path.insert(0, vp3d_path)
 
 from util import load_poses, load_eldersim_camera
 

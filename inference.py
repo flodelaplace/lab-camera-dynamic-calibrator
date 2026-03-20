@@ -1,7 +1,10 @@
 import argument
 import os, sys
 
-vp3d_path = os.path.abspath(os.path.join("./third_party/VideoPose3D"))
+# Obtenir le chemin absolu du script actuel pour localiser VideoPose3D
+script_dir = os.path.dirname(os.path.abspath(__file__))
+vp3d_path = os.path.join(script_dir, "third_party", "VideoPose3D")
+
 if vp3d_path not in sys.path:
     sys.path.append(vp3d_path)
 

@@ -17,7 +17,7 @@ We provide an automated script `calibrate.sh` that chains all the necessary step
 
 ```bash
 bash ./calibrate.sh \
-    "demo/videos" \
+    "demo/" \
     "demo/Calib_scene.toml" \
     "./output/demo_calibration" \
     "cuda" \
@@ -27,7 +27,7 @@ bash ./calibrate.sh \
 ```
 
 #### Arguments explained:
-1. `"demo/videos"` : Path to the folder containing your synchronized videos.
+1. `"demo/"` : Path to the folder containing your synchronized videos.
 2. `"demo/Calib_scene.toml"` : Path to your initial intrinsics TOML file.
 3. `"./output/demo_calibration"` : *(Optional)* Output directory.
 4. `"cuda"` : *(Optional)* Compute device (`cuda` or `cpu`).
@@ -56,7 +56,7 @@ If you prefer to run the steps manually to debug or inspect intermediate files:
 1. **Extract 2D Keypoints (RTMPose)**
 ```bash
 python rtmlib_inference.py \
-    --video_dir demo/videos \
+    --video_dir demo/ \
     --output_dir output/demo_calibration \
     --aid 1 --pid 1 --gid 1 \
     --subset_name raw_rtm \
@@ -93,7 +93,7 @@ python scale_scene.py \
     --subset raw_rtm \
     --input_toml demo/Calib_scene.toml \
     --export_toml output/demo_calibration/results/Calib_scene_calibrated.toml \
-    --video_dir demo/videos
+    --video_dir demo/
 ```
 
 6. **Visualization**
