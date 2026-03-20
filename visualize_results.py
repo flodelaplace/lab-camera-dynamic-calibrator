@@ -237,21 +237,21 @@ def make_animation(X3d_world, R_w2c, t_w2c, output_path, fps=15, step=1):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Visualise le squelette 3D triangulé + caméras après calibration."
+        description="Visualize the triangulated 3D skeleton + cameras after calibration."
     )
     parser.add_argument("--prefix",  required=True,
-                        help="Ex: ./data/A001_P001_G001")
+                        help="Example: ./data/A001_P001_G001")
     parser.add_argument("--subset",  default="noise_1_0",
-                        help="Nom du sous-dossier avec les poses (défaut: noise_1_0)")
+                        help="Name of the subset folder with poses (default: noise_1_0)")
     parser.add_argument("--calib",   default="linear_1_0_ba",
-                        help="Nom du fichier JSON de calibration dans results/ (défaut: linear_1_0_ba)")
+                        help="Name of the calibration JSON file in results/ (default: linear_1_0_ba)")
     parser.add_argument("--dataset", default="MyDataset")
     parser.add_argument("--output",  default=None,
-                        help="Chemin de sortie .gif ou .mp4 (défaut: results/camera/visu_3d.gif)")
+                        help="Output path .gif or .mp4 (default: results/camera/visu_3d.gif)")
     parser.add_argument("--fps",     type=int, default=15,
-                        help="FPS de l'animation (défaut: 15)")
+                        help="Animation FPS (default: 15)")
     parser.add_argument("--step",    type=int, default=1,
-                        help="Rendre 1 frame sur N (défaut: 1, toutes les frames)")
+                        help="Render 1 frame every N (default: 1, all frames)")
     args = parser.parse_args()
 
     subset_dir = os.path.join(args.prefix, args.subset)

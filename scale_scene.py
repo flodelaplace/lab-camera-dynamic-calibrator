@@ -148,7 +148,7 @@ def main():
     r_heel_3d = get_3d_keypoint(p2d_all, s2d_all, K, R_w2c_orig, t_w2c_orig, args.frame_idx, R_HEEL_IDX)
     
     if l_heel_3d is not None and r_heel_3d is not None:
-        # X-axis doit pointer vers la droite (Talon gauche -> Talon droit pour corriger l'effet miroir)
+        # X-axis should point to the right (Left Heel -> Right Heel to fix mirror effect)
         x_axis_temp = l_heel_3d - r_heel_3d
         heels_center = (l_heel_3d + r_heel_3d) / 2.0
     else:
@@ -165,8 +165,8 @@ def main():
     # Z-axis is the cross product
     z_axis = np.cross(x_axis, y_axis)
 
-    # L'origine (0,0,0) est placée au centre des talons (pour les axes X,Z), 
-    # et alignée avec le point le plus bas de tous les points du pied (pour l'axe Y).
+    # Origin (0,0,0) is placed at the center of the heels (for X,Z axes),
+    # and aligned with the lowest point of all foot points (for Y axis).
     floor_y_proj = max(np.dot(p, y_axis) for p in foot_points_3d)
     origin = heels_center + (floor_y_proj - np.dot(heels_center, y_axis)) * y_axis
 
@@ -176,7 +176,7 @@ def main():
     # --- 3. Transform Cameras ---
     R_w2c_new, t_w2c_new = [], []
     for R, t in zip(R_w2c_orig, t_w2c_orig):
-        # Transformation algébrique directe sans inversions matricielles instables
+        # Direct algebraic transformation without unstable matrix inversions
         R_new = R @ R_transform.T
         t_new = R @ origin.reshape(3, 1) + t.reshape(3, 1)
 

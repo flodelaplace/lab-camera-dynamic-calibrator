@@ -23,7 +23,8 @@ bash ./calibrate.sh \
     "cuda" \
     "balanced" \
     --height 1.80 \
-    --ref_frame 5
+    --ref_frame 5 \
+    --frame_skip 10
 ```
 
 #### Arguments explained:
@@ -37,6 +38,7 @@ bash ./calibrate.sh \
 * `--height 1.80` : The real-world height of the subject in meters. Used to scale the final extrinsics to true metric coordinates.
 * `--ref_frame 5` : A specific frame where the subject is standing straight, feet on the ground. This is used to re-orient the coordinate system (Y-axis vertical, XZ-plane on the ground).
 * `--start_frame` & `--end_frame` : Only process a specific segment of the video. Highly recommended if your videos are long.
+* `--frame_skip` : Interval between frames used for calibration (default is 10). Increase it for faster calibration or if the person moves slowly.
 
 ### 3. Check the Results
 

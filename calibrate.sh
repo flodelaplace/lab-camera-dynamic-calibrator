@@ -1,25 +1,26 @@
 #!/bin/bash
 # =============================================================================
-# calibrate.sh — Pipeline complet de calibration extrinsèque
+# calibrate.sh — Full extrinsic calibration pipeline
 #
 # Usage:
 #   bash ./calibrate.sh <video_dir> <calib_toml> [output_dir] [device] [mode] [options]
 #
 # Arguments:
-#   video_dir   : Dossier contenant les vidéos.
-#   calib_toml  : Fichier TOML avec les paramètres intrinsèques.
-#   output_dir  : (Optionnel) Dossier de sortie au format Axxx_Pxxx_Gxxx.
-#   device      : (Optionnel) 'cpu' ou 'cuda'. Défaut: 'cuda'.
-#   mode        : (Optionnel) 'lightweight', 'balanced', 'performance'. Défaut: 'balanced'.
+#   video_dir   : Folder containing the videos.
+#   calib_toml  : TOML file with intrinsic parameters.
+#   output_dir  : (Optional) Output folder in Axxx_Pxxx_Gxxx format.
+#   device      : (Optional) 'cpu' or 'cuda'. Default: 'cuda'.
+#   mode        : (Optional) 'lightweight', 'balanced', 'performance'. Default: 'balanced'.
 #
 # Options:
-#   --height <h>      : Taille réelle de la personne en mètres (ex: 1.80) pour la mise à l'échelle.
-#   --ref_frame <f>   : Frame de référence où la personne est droite pour l'orientation/échelle.
-#   --start_frame <s> : Frame de début pour la calibration.
-#   --end_frame <e>   : Frame de fin pour la calibration.
+#   --height <h>      : Real height of the person in meters (e.g. 1.80) for scaling.
+#   --ref_frame <f>   : Reference frame where the person is standing straight for orientation/scaling.
+#   --start_frame <s> : Start frame for calibration.
+#   --end_frame <e>   : End frame for calibration.
+#   --frame_skip <n>  : Interval between frames used for calibration (default: 10).
 # =============================================================================
 
-set -e  # Arrêter au moindre erreur
+set -e  # Stop on error
 
 # --- Default values ---
 DEVICE="cuda"
@@ -28,6 +29,7 @@ PERSON_HEIGHT=""
 REF_FRAME=""
 START_FRAME=""
 END_FRAME=""
+FRAME_SKIP=10
 
 # --- Parse arguments ---
 # Positional arguments
@@ -44,6 +46,7 @@ while [[ "$#" -gt 0 ]]; do
         --ref_frame) REF_FRAME="$2"; shift ;;
         --start_frame) START_FRAME="$2"; shift ;;
         --end_frame) END_FRAME="$2"; shift ;;
+        --frame_skip) FRAME_SKIP="$2"; shift ;;
         cuda|cpu) DEVICE="$1" ;;
         lightweight|balanced|performance) MODE="$1" ;;
         *) echo "Unknown parameter passed: $1"; exit 1 ;;
@@ -69,7 +72,6 @@ fi
 SUBSET="noise_1_0"
 DATASET="MyDataset"
 MODEL="pretrained_h36m_detectron_coco.bin"
-FRAME_SKIP=10
 LAMBDA1=1.
 LAMBDA2=100000.
 
@@ -82,6 +84,7 @@ echo "║  Calib TOML : ${CALIB_TOML}"
 echo "║  Output Dir : ${OUTPUT_DIR}"
 echo "║  Session IDs: AID=${AID}, PID=${PID}, GID=${GID}"
 echo "║  Device     : ${DEVICE}   Mode: ${MODE}"
+echo "║  Frame Skip : ${FRAME_SKIP}"
 if [ -n "$START_FRAME" ]; then
 echo "║  Calib Range: Frames ${START_FRAME} to ${END_FRAME}"
 fi
@@ -93,9 +96,9 @@ echo ""
 
 mkdir -p "${OUTPUT_DIR}"
 
-# ── Étape 1 : Extraction 2D poses ─────────────────────────────────────────────
+# --- Step 1: 2D pose extraction ---------------------------------------------
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "[1/7] Extraction des poses 2D avec RTMPose..."
+echo "[1/7] Extracting 2D poses with RTMPose..."
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "  -> frame range: ${START_FRAME:-0} to ${END_FRAME:-<end>}"
 python3 rtmlib_inference.py --video_dir "${VIDEO_DIR}" --output_dir "${OUTPUT_DIR}" --aid ${AID} --pid ${PID} --gid ${GID} --subset_name "${SUBSET}" --device ${DEVICE} --mode ${MODE} \
@@ -103,11 +106,11 @@ python3 rtmlib_inference.py --video_dir "${VIDEO_DIR}" --output_dir "${OUTPUT_DI
     $( [ -n "${END_FRAME}" ] && echo --end_frame "${END_FRAME}" )
 
 
-## ── Étape 1.5 : Créer le mappage des frames si une plage est spécifiée ────────
+## --- Step 1.5: Create frame mapping if a range is specified -------------------
 #if [ -n "$START_FRAME" ] && [ -n "$END_FRAME" ]; then
 #    echo ""
 #    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-#    echo "[1.5] Création du fichier de mappage des frames..."
+#    echo "[1.5] Creating frame mapping file..."
 #    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 #    python3 - << PYEOF
 #import json, os, sys
@@ -119,10 +122,10 @@ python3 rtmlib_inference.py --video_dir "${VIDEO_DIR}" --output_dir "${OUTPUT_DI
 #end_frame = int("${END_FRAME}")
 #
 #num_frames = end_frame - start_frame + 1
-#num_joints = 25 # Format OpenPose
+#num_joints = 25 # OpenPose format
 #
 #frame_indices = list(range(start_frame, end_frame + 1))
-## Créer un squelette 3D factice pour la compatibilité avec les autres scripts
+## Create a dummy 3D skeleton for compatibility with other scripts
 #dummy_skeleton = np.full((num_frames, num_joints, 3), None).tolist()
 #
 #mapping_data = {"frame_indices": frame_indices, "skeleton": dummy_skeleton}
@@ -131,26 +134,26 @@ python3 rtmlib_inference.py --video_dir "${VIDEO_DIR}" --output_dir "${OUTPUT_DI
 #os.makedirs(os.path.dirname(output_path), exist_ok=True)
 #with open(output_path, "w") as f:
 #    json.dump(mapping_data, f)
-#print(f"  -> Fichier de mappage compatible créé : {output_path}")
+#print(f"  -> Compatible mapping file created: {output_path}")
 #PYEOF
 #fi
 
 
-# ── Étape 2 : Créer cameras_Gxxx.json ─────────────────────────────────────────
+# --- Step 2: Create cameras_Gxxx.json -----------------------------------------
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "[2/7] Lecture des intrinsèques depuis le TOML..."
+echo "[2/7] Reading intrinsics from TOML..."
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 CAM_NAMES=()
 while IFS= read -r -d $'\0' file; do BNAME=$(basename "$file"); CAM_NAMES+=("${BNAME%.*}"); done < <(find "${VIDEO_DIR}" -maxdepth 1 \( -name "*.mp4" -o -name "*.MP4" \) -print0 | sort -zV)
 python3 create_cameras_from_toml.py --toml "${CALIB_TOML}" --output_dir "${OUTPUT_DIR}/${SUBSET}" --gid ${GID} --cam_names "${CAM_NAMES[@]}"
 
 
-# ── Étape 2.5 (Anciennement 1.5) : Créer le mappage des frames ────────
+# --- Step 2.5 (Formerly 1.5): Create frame mapping -------------------
 if [ -n "$START_FRAME" ] && [ -n "$END_FRAME" ]; then
     echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo "[2.5] Création du fichier de mappage des frames..."
+    echo "[2.5] Creating frame mapping file..."
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     python3 - << PYEOF
 import json, os, sys
@@ -162,9 +165,9 @@ start_frame = int("${START_FRAME}")
 end_frame = int("${END_FRAME}")
 
 num_frames = end_frame - start_frame + 1
-num_joints = 25 # Format OpenPose
+num_joints = 25 # OpenPose format
 
-# RTMPose conserve les numéros de frames originaux (ex: 1500 à 2499)
+# RTMPose keeps original frame numbers (e.g. 1500 to 2499)
 frame_indices = list(range(start_frame, end_frame + 1))
 dummy_skeleton = np.full((num_frames, num_joints, 3), None).tolist()
 
@@ -174,18 +177,18 @@ output_path = os.path.join(output_dir, subset, f"skeleton_w_G{gid:03d}.json")
 os.makedirs(os.path.dirname(output_path), exist_ok=True)
 with open(output_path, "w") as f:
     json.dump(mapping_data, f)
-print(f"  -> Fichier de mappage compatible créé : {output_path}")
+print(f"  -> Compatible mapping file created: {output_path}")
 PYEOF
 fi
 
-# ── Étape 3 : Mise à jour de la configuration ────────────────────────────────
+# --- Step 3: Update configuration -----------------------------------------
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "[3/7] Mise à jour de la configuration..."
+echo "[3/7] Updating configuration..."
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 python3 - << PYEOF
 import yaml, json, sys, os, glob, re
-script_dir = os.getcwd() # Ou utiliser un chemin plus robuste si nécessaire
+script_dir = os.getcwd() # Or use a more robust path if needed
 output_dir, subset, calib_toml, aid, pid, gid = "${OUTPUT_DIR}", "${SUBSET}", "${CALIB_TOML}", ${AID}, ${PID}, ${GID}
 cam_file = os.path.join(output_dir, subset, f"cameras_G{gid:03d}.json")
 with open(cam_file) as f: n_cams = len(json.load(f)["CAMID"])
@@ -198,21 +201,21 @@ with open("./config/config.yaml", "w") as f: yaml.dump(config, f, default_flow_s
 print(f"Config updated: {n_cams} cameras, {n_frames} frames")
 PYEOF
 
-# ── Étape 4 : Lifting 2D -> 3D ────────────────────────────────────────────────
+# --- Step 4: Lifting 2D -> 3D ------------------------------------------------
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "[4/7] Lifting 2D -> 3D avec VideoPose3D..."
+echo "[4/7] Lifting 2D -> 3D with VideoPose3D..."
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 bash ./inference.sh "${OUTPUT_DIR}" ${AID} ${PID} ${GID} ${SUBSET} ${MODEL} ${DATASET} ${DEVICE}
 
-# ── Étape 5 : Calibration extrinsèque ────────────────────────────────────────
+# --- Step 5: Extrinsic calibration ------------------------------------------
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "[5/7] Calibration extrinsèque..."
+echo "[5/7] Extrinsic calibration..."
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "  → Calibration linéaire par chunks..."
+echo "  → Running linear calibration by chunks..."
 
-# Les données sont déjà rognées, on calibre simplement sur la totalité des frames disponibles en local (index 0 à N-1)
+# Data are already cropped, just calibrate on all locally available frames (index 0 to N-1)
 bash ./calib_linear.sh "${OUTPUT_DIR}" ${AID} ${PID} ${GID} ${SUBSET} ${FRAME_SKIP} ${DATASET}
 
 # Verify linear calibration result exists
@@ -222,13 +225,13 @@ if [ ! -f "${FINAL_LINEAR_JSON}" ]; then
     echo "Aborting bundle adjustment. Please check calib_linear.sh output and logs."
     exit 1
 fi
-echo "  → Bundle Adjustment (linéaire)..."
+echo "  → Bundle Adjustment (linear)..."
 bash ./ba.sh "${OUTPUT_DIR}" ${AID} ${PID} ${GID} ${FRAME_SKIP} ${LAMBDA1} ${LAMBDA2} linear_1_0 ${DATASET} false true
 
-# ── Étape 6 : Évaluation et Visualisation ─────────────────────────────────────
+# --- Step 6: Evaluation and Visualization ---------------------------------------
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "[6/7] Évaluation et Visualisation..."
+echo "[6/7] Evaluation and Visualization..."
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 declare -A MRE_SCORES
 BEST_MRE=99999
@@ -243,25 +246,25 @@ for CALIB in linear_1_0 linear_1_0_ba; do
             MRE_SCORES[$CALIB]=$MRE
             if (( $(echo "$MRE < $BEST_MRE" | bc -l) )); then BEST_MRE=$MRE; BEST_CALIB=$CALIB; fi
         fi
-        echo "  → Visualisation 3D pour ${CALIB}..."
+        echo "  → 3D Visualization for ${CALIB}..."
         python3 visualize_results.py --prefix "${OUTPUT_DIR}" --subset "${SUBSET}" --calib "${CALIB}" --dataset ${DATASET} --output "${OUTPUT_DIR}/results/camera/visu_3d_${CALIB}.gif" || echo "  ⚠ Visu ${CALIB} failed"
     fi
 done
 
-# ── Étape 7 : Mise à l'échelle et Orientation (Optionnel) ─────────────────────
+# --- Step 7: Scaling and Orientation (Optional) -------------------------------
 FINAL_TOML_PATH="${OUTPUT_DIR}/results/Calib_scene_calibrated.toml"
 FINAL_CALIB_NAME=""
 if [ -n "$PERSON_HEIGHT" ] && [ -n "$REF_FRAME" ] && [ -n "$BEST_CALIB" ]; then
     echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo "[7/7] Mise à l'échelle, Orientation et Visualisation Finale..."
+    echo "[7/7] Scaling, Orientation and Final Visualization..."
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     
-    # --- Mappage de la frame de référence ---
+    # --- Reference frame mapping ---
     MAPPED_REF_FRAME=$REF_FRAME
     if [ -n "$START_FRAME" ]; then
         MAPPED_REF_FRAME=$((REF_FRAME - START_FRAME))
-        echo "  -> Frame de référence re-mappée de ${REF_FRAME} à l'indice ${MAPPED_REF_FRAME} pour correspondre aux données rognées."
+        echo "  -> Reference frame re-mapped from ${REF_FRAME} to index ${MAPPED_REF_FRAME} to match cropped data."
     fi
 
     python3 scale_scene.py \
@@ -275,7 +278,7 @@ if [ -n "$PERSON_HEIGHT" ] && [ -n "$REF_FRAME" ] && [ -n "$BEST_CALIB" ]; then
 
     FINAL_CALIB_NAME="${BEST_CALIB}_oriented_scaled"
     if [ -f "${OUTPUT_DIR}/results/${FINAL_CALIB_NAME}.json" ]; then
-        echo "  → Visualisation finale..."
+        echo "  → Final visualization..."
         python3 visualize_results.py \
             --prefix  "${OUTPUT_DIR}" \
             --subset  "${SUBSET}" \
@@ -285,16 +288,16 @@ if [ -n "$PERSON_HEIGHT" ] && [ -n "$REF_FRAME" ] && [ -n "$BEST_CALIB" ]; then
     fi
 fi
 
-# ── Résumé final ──────────────────────────────────────────────────────────────
+# --- Final Summary ------------------------------------------------------------
 echo ""
 echo "╔══════════════════════════════════════════════════════════════╗"
 echo "║                      ✅  DONE !                              ║"
 echo "╠══════════════════════════════════════════════════════════════╣"
-echo "║  Résultats dans : ${OUTPUT_DIR}/results/"
+echo "║  Results in : ${OUTPUT_DIR}/results/"
 echo "╠══════════════════════════════════════════════════════════════╣"
-echo "║  📊 Tableau Récapitulatif des MRE (Mean Reprojection Error)  ║"
+echo "║  📊 MRE Summary Table (Mean Reprojection Error)              ║"
 echo "║──────────────────────────────────────────────────────────────║"
-printf "║ %-25s | %-s\n" "Méthode" "MRE (pixels)"
+printf "║ %-25s | %-s\n" "Method" "MRE (pixels)"
 echo "║──────────────────────────────────────────────────────────────║"
 for CALIB in "${!MRE_SCORES[@]}"; do
     if [ "$CALIB" == "$BEST_CALIB" ]; then
@@ -305,13 +308,13 @@ for CALIB in "${!MRE_SCORES[@]}"; do
 done
 if [ -n "$FINAL_CALIB_NAME" ]; then
     echo "║──────────────────────────────────────────────────────────────║"
-    echo "║  Fichier TOML final généré :                                 ║"
+    echo "║  Final TOML file generated:                                  ║"
     printf "║    results/%s\n" "$(basename ${FINAL_TOML_PATH})"
-    echo "║  Visualisation finale :                                      ║"
+    echo "║  Final visualization:                                        ║"
     echo "║    results/camera/visu_3d_FINAL.gif                          ║"
 else
     echo "║──────────────────────────────────────────────────────────────║"
-    echo "║ Pour générer un TOML final, relancez avec les options :      ║"
-    echo "║   --height <h> --ref_frame <f>                               ║"
+    echo "║  To generate a final TOML, rerun with options:               ║"
+    echo "║    --height <h> --ref_frame <f>                              ║"
 fi
 echo "╚══════════════════════════════════════════════════════════════╝"

@@ -51,7 +51,8 @@ bash ./calibrate.sh \
     "cuda" \
     "balanced" \
     --height 1.80 \
-    --ref_frame 5
+    --ref_frame 5 \
+    --frame_skip 10
 ```
 
 Once finished, the final fully-scaled extrinsic calibration TOML and a 3D visualization GIF will be available in `./output/demo_calibration/results/`.
