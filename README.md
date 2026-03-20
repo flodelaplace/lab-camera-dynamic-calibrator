@@ -23,12 +23,12 @@ conda activate human_calib
 
 ## 2. Models & Third-party Dependencies
 
-After setting up the conda environment, you need to download the pretrained models for VideoPose3D. We provide a quick setup script for this:
+After setting up the conda environment, you need to download the VideoPose3D library and its pretrained models. We provide a quick setup script that handles the git submodule initialization and model download:
 
 ```bash
 bash setup_models.sh
 ```
-*(Note: RTMPose models are automatically downloaded and handled by `rtmlib` upon first execution).*
+*(Note: This script will automatically clone VideoPose3D into `./third_party/VideoPose3D` if it's missing, and download the necessary weights into `./model/`).*
 
 ## 3. Fast Demo Setup 🚀
 
