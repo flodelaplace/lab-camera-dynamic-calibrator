@@ -133,27 +133,34 @@ model/
 data/
 datasets/
 input/
-output/
+output/*
+!output/.gitkeep
 third_party/
 singularity/
 
+# Block generic data and media extensions...
 *.mp4
 *.avi
 *.mov
 *.mkv
-
 *.sif
 *.npz
 *.npy
 *.json
 *.toml
 *.yaml
+
+# ... BUT explicitly un-ignore specific necessary config files and demo files
 !conda_linux.yaml
 !config/config.yaml
 
+# Allow all files in the demo folder to be pushed
+!demo/
+!demo/**/*
+
+# Jupyter & Misc
 ./*.ipynb
 *.gif
 tmp_vis.ipynb
-
 tmp.sh
 *.log

@@ -4,82 +4,104 @@ This guide explains how to calibrate camera extrinsics from your own videos usin
 
 ### 1. Prepare Your Data
 
-1. Place your synchronized videos (e.g., `.mp4`, `.avi`, `.mov`) in a directory (e.g., `input/my_calibration/videos`). Ensure that the cameras are fixed and the subject is moving across the capture volume.
-2. Prepare a `Calib.toml` file containing your camera names and their intrinsic parameters, matching the exact format used by Pose2Sim. Place it in `input/my_calibration/Calib.toml`.
+1. Place your synchronized videos (e.g., `.mp4`, `.avi`, `.mov`) in a directory. Ensure that the cameras are fixed and the subject is moving across the capture volume.
+2. Prepare a `Calib.toml` file containing your camera names and their intrinsic parameters, matching the exact format used by Pose2Sim.
 
-### 2. Generate Camera JSON File
+*(You can use the provided `demo/` folder to test the pipeline right away. It contains 4 synchronized videos and a `Calib_scene.toml` file).*
 
-Convert your `Calib.toml` into the specific `.json` structure expected by this pipeline using the utility script:
+### 2. Run the Full Calibration Pipeline
+
+We provide an automated script `calibrate.sh` that chains all the necessary steps: 2D pose extraction, 3D lifting, linear calibration, bundle adjustment, and real-world metric scaling.
+
+**Example using the demo dataset:**
 
 ```bash
-python create_cameras_from_toml.py \
-    --toml input/my_calibration/Calib.toml \
-    --output_dir output/my_calibration/raw_rtm \
-    --gid 1 \
-    --cam_names "cam1" "cam2" "cam3"
+bash ./calibrate.sh \
+    "demo/videos" \
+    "demo/Calib_scene.toml" \
+    "./output/demo_calibration" \
+    "cuda" \
+    "balanced" \
+    --height 1.80 \
+    --ref_frame 5
 ```
-*(The suffix `G001` is used by the pipeline to track a specific "group" or trial. The cam_names must match the section headers in your TOML).*
 
-### 3. Extract 2D Keypoints (RTMPose)
+#### Arguments explained:
+1. `"demo/videos"` : Path to the folder containing your synchronized videos.
+2. `"demo/Calib_scene.toml"` : Path to your initial intrinsics TOML file.
+3. `"./output/demo_calibration"` : *(Optional)* Output directory.
+4. `"cuda"` : *(Optional)* Compute device (`cuda` or `cpu`).
+5. `"balanced"` : *(Optional)* RTMPose model size (`lightweight`, `balanced`, or `performance`).
 
-Run RTMPose to extract 2D keypoints for the video segments you want to process.
+#### Optional Flags for Scaling & Cropping:
+* `--height 1.80` : The real-world height of the subject in meters. Used to scale the final extrinsics to true metric coordinates.
+* `--ref_frame 5` : A specific frame where the subject is standing straight, feet on the ground. This is used to re-orient the coordinate system (Y-axis vertical, XZ-plane on the ground).
+* `--start_frame` & `--end_frame` : Only process a specific segment of the video. Highly recommended if your videos are long.
 
+### 3. Check the Results
+
+Once the script finishes, it will generate a summary of the Mean Reprojection Error (MRE) for each optimization step. 
+
+You can find all outputs in your output directory (`output/demo_calibration/results/`):
+* **`Calib_scene_calibrated.toml`** : The final calibrated intrinsic and extrinsic parameters, ready to be used in Pose2Sim or OpenCap.
+* **`camera/visu_3d_FINAL.gif`** : A 3D animation of the triangulated skeleton and the estimated camera positions.
+
+
+---
+
+### (Alternative) Manual Step-by-Step Execution
+
+If you prefer to run the steps manually to debug or inspect intermediate files:
+
+1. **Extract 2D Keypoints (RTMPose)**
 ```bash
 python rtmlib_inference.py \
-    --video_dir input/my_calibration/videos \
-    --output_dir output/my_calibration \
+    --video_dir demo/videos \
+    --output_dir output/demo_calibration \
     --aid 1 --pid 1 --gid 1 \
     --subset_name raw_rtm \
-    --device cuda \
-    --start_frame 0 \
-    --end_frame 300
+    --device cuda
 ```
-This will process the first 300 frames of every video in the directory and save the 2D joint predictions in OpenPose-25 JSON format under `output/my_calibration/raw_rtm/2d_joint`.
 
-### 4. Lift to 3D Keypoints (VideoPose3D)
-
-Next, we use VideoPose3D to estimate unscaled 3D poses from the 2D keypoints. *Note: You must have downloaded the VideoPose3D pretrained model into `model/` as instructed in `README.md`.*
-
+2. **Generate Camera JSON File**
 ```bash
-# This script executes the VideoPose3D pipeline locally
-sh inference.sh output/my_calibration 1 1 1 raw_rtm pretrained_h36m_detectron_coco.bin Custom
+python create_cameras_from_toml.py \
+    --toml demo/Calib_scene.toml \
+    --output_dir output/demo_calibration/raw_rtm \
+    --gid 1 \
+    --cam_names "cam1" "cam2" "cam3" "cam4" # Adjust to match your TOML sections
 ```
 
-### 5. Calibrate Camera Extrinsics
-
-With 2D and 3D joints ready, we can now run the core calibration script. This will use linear calibration followed by bundle adjustment.
-
+3. **Lift to 3D Keypoints (VideoPose3D)**
 ```bash
-sh run_custom.sh output/my_calibration 1 1 1
+sh inference.sh output/demo_calibration 1 1 1 raw_rtm pretrained_h36m_detectron_coco.bin Custom
 ```
-*Wait for the optimization to finish. The results will be stored in `output/my_calibration/results/`.*
 
-### 6. Scale and Align to True World Coordinates
+4. **Calibrate Camera Extrinsics**
+```bash
+sh calib_linear.sh output/demo_calibration 1 1 1 raw_rtm 10 Custom
+sh ba.sh output/demo_calibration 1 1 1 10 1. 100000. linear_1_0 Custom false true
+```
 
-The outputs from the calibration step are up to an unknown scale and arbitrary reference frame. To bring the extrinsics into true world coordinates (e.g., in meters, relative to the floor), use your reference object or the person's height.
-
+5. **Scale and Align to True World Coordinates**
 ```bash
 python scale_scene.py \
-    --prefix output/my_calibration \
+    --prefix output/demo_calibration \
     --calib linear_1_0_ba \
     --height 1.80 \
-    --frame_idx 150 \
+    --frame_idx 5 \
     --subset raw_rtm \
-    --input_toml input/my_calibration/Calib.toml \
-    --export_toml output/my_calibration/Calib_scaled.toml \
-    --video_dir input/my_calibration/videos
+    --input_toml demo/Calib_scene.toml \
+    --export_toml output/demo_calibration/results/Calib_scene_calibrated.toml \
+    --video_dir demo/videos
 ```
-*(This assumes frame 150 has the person standing straight. It will export the final true-scale calibration back to a Pose2Sim-compatible TOML file).*
 
-### 7. Evaluation and Visualization
-
-You can visualize the calibrated cameras and triangulated 3D points to verify accuracy:
-
+6. **Visualization**
 ```bash
 python visualize_results.py \
-    --prefix output/my_calibration \
+    --prefix output/demo_calibration \
     --subset raw_rtm \
     --calib linear_1_0_ba_oriented_scaled \
     --dataset Custom \
-    --output output/my_calibration/results/camera/visu_3d.mp4
+    --output output/demo_calibration/results/camera/visu_3d.mp4
 ```

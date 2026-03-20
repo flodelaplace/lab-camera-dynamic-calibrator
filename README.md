@@ -30,21 +30,28 @@ bash setup_models.sh
 ```
 *(Note: RTMPose models are automatically downloaded and handled by `rtmlib` upon first execution).*
 
-## 3. Input Data Format
+## 3. Fast Demo Setup 🚀
 
-Instead of relying on the original datasets' rigid formats, this repository is designed to be more flexible:
-1. **Intrinsics**: Provide your camera intrinsic parameters in a `Calib.toml` file (Pose2Sim format). You can generate the initial camera setup using `create_cameras_from_toml.py`.
-2. **Videos**: Place your synchronized videos in your designated input folder. You can configure the pipeline to process only a specific time window.
+Want to test the pipeline right away? A demo dataset with 4 synchronized videos and a base `Calib_scene.toml` is provided in the `demo/` folder.
 
-## 4. Pipeline Execution overview
+You can run the full calibration on this demo dataset in one single command:
 
-Check out [HOWTO.md](HOWTO.md) for a step-by-step example of running the calibration.
+```bash
+bash ./calibrate.sh \
+    "demo/videos" \
+    "demo/Calib_scene.toml" \
+    "./output/demo_calibration" \
+    "cuda" \
+    "balanced" \
+    --height 1.80 \
+    --ref_frame 5
+```
 
-1. **2D Pose Extraction**: Run the RTMPose inference script (`rtmlib_inference.py`) to extract 2D keypoints from the videos.
-2. **3D Lifting**: Run VideoPose3D inference to lift the 2D keypoints to 3D.
-3. **Calibration**: Run the linear calibration and bundle adjustment (`calib_linear.py` / `ba.py`) to estimate the extrinsic parameters.
-4. **World Scaling**: Apply your reference frame to scale and align the extrinsic parameters into the true real-world coordinate system.
-5. **Evaluation / Visualization**: Use `visualize_results.py` and `evaluate_calibration.py` to verify the accuracy of the calibration.
+Once finished, the final fully-scaled extrinsic calibration TOML and a 3D visualization GIF will be available in `./output/demo_calibration/results/`.
+
+## 4. Full Guide & Pipeline Execution
+
+To use this pipeline with **your own data**, or to understand the inner workings step-by-step (2D extraction -> 3D lifting -> Calibration -> World Scaling), please check out the **[HOWTO.md](HOWTO.md)**.
 
 ## Acknowledgments & Citations
 
