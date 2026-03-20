@@ -14,7 +14,7 @@ while [[ "$#" -gt 0 ]]; do
 done
 
 # Positional arguments
-if [ $# != 7 ]; then
+if [ $# -lt 7 ]; then
     echo
     echo "Usage: $0 PREFIX AID PID GID TARGET FRAME_SKIP DATASET [--start_frame S] [--end_frame E]"
     echo "[e.g.] sh ./calib_linear.sh ./data/A023_P102_G003 23 102 3 noise_3_0 1 SynADL"

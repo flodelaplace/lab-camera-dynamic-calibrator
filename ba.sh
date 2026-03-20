@@ -1,5 +1,5 @@
 #!/bin/bash
-if [ $# != 11 ]; then
+if [ $# -lt 11 ]; then
     echo
     echo $0
     echo "[Usage] PREFIX AID PID GID FRAME_SKIP LAMBDA1 LAMBDA2 TARGET DATASET OBS_MASK SAVE_OBS_MASK"

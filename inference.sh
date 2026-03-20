@@ -1,9 +1,9 @@
 #!/bin/bash
-if [ $# != 7 ]; then
+if [ $# -lt 7 ] || [ $# -gt 8 ]; then
     echo
     echo $0
-    echo [Usage] PREFIX AID, PID, GID, TARGET, DATASET MODEL
-    echo [e.g.] sh ./inference.sh ./data/A023_P102_G003 23 102 3 noise_3_0 pretrained_h36m_detectron_coco.bin SynADL
+    echo "[Usage] PREFIX AID, PID, GID, TARGET, DATASET MODEL [DEVICE]"
+    echo "[e.g.] sh ./inference.sh ./data/A023_P102_G003 23 102 3 noise_3_0 pretrained_h36m_detectron_coco.bin SynADL cuda"
     exit
 fi
 
