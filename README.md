@@ -34,6 +34,17 @@ While the core optimization engine for calculating extrinsic parameters is prese
 
 ## 1. Prerequisites
 
+ ⚠️ **Operating System Requirement:** This project is strictly designed to run on **Linux**. If you are a Windows user, you must use **Ubuntu via WSL2** (Windows Subsystem for Linux).
+ 
+ ### 1. Download the Project
+ First, open your Linux/WSL terminal and clone this repository to your local machine:
+ 
+ ```bash
+ git clone https://github.com/flodelaplace/lab-camera-dynamic-calibrator.git
+ cd lab-camera-dynamic-calibrator
+ ```
+ 
+ ### 2. Environment Setup
 We recommend using Anaconda/Miniconda to manage the environment. The required packages and their specific versions (including PyTorch with CUDA support and RTMPose dependencies) are listed in `conda_linux.yaml`.
 
 ```bash
