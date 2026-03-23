@@ -5,7 +5,10 @@ This repository provides a complete pipeline for **Extrinsic Camera Calibration 
 ### 🎥 Pipeline Overview
 
 The pipeline automatically processes multiple synchronized video streams to compute the extrinsic parameters (R, t) of all cameras, scaling them to a real-world coordinate system.
+
+
 ![Overview camera extrinsics](img/Graphical_abstract_lab_camera_dynamic_calibrator.png)
+
 
 ### 🛠️ How it Works
 
