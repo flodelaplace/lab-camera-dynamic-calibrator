@@ -9,6 +9,7 @@ The pipeline automatically processes multiple synchronized video streams to comp
 
 ![Overview camera extrinsics](img/Graphical_abstract_lab_camera_dynamic_calibrator.png)
 
+[Pose2Sim](https://github.com/perfanalytics/pose2sim) demo files *
 
 ### 🛠️ How it Works
 
