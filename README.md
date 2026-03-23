@@ -5,19 +5,7 @@ This repository provides a complete pipeline for **Extrinsic Camera Calibration 
 ### 🎥 Pipeline Overview
 
 The pipeline automatically processes multiple synchronized video streams to compute the extrinsic parameters (R, t) of all cameras, scaling them to a real-world coordinate system.
-
-```mermaid
-graph TD
-    A[Multiple Videos] --> B("1. 2D Pose Estimation <br/>(RTMPose)")
-    B --> C("2. 2D Pose Normalization")
-    C --> D("3. 3D Pose Lifting <br/>(VideoPose3D)")
-    D --> E("4. Linear Extrinsic Calibration")
-    E --> F("5. Bundle Adjustment <br/>(Refinement)")
-    F --> G("6. World Scaling & Orientation")
-    G --> H("Final Calib.toml & <br/>3D Visualization")
-    
-    I("Intrinsics Calib_scene.toml") -.-> E
-```
+![Project overview](img/Lab_camera_optimizer_overview.png)
 
 ### 🛠️ How it Works
 
