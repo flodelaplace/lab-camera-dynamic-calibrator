@@ -2,12 +2,14 @@
 # Default values
 START_FRAME=""
 END_FRAME=""
+CONF_THRESHOLD=0.5
 
 # Parse named arguments
 while [[ "$#" -gt 0 ]]; do
     case $1 in
         --start_frame) START_FRAME="$2"; shift ;;
         --end_frame) END_FRAME="$2"; shift ;;
+        --conf_threshold) CONF_THRESHOLD="$2"; shift ;;
         *) break ;; # Stop parsing on the first positional argument
     esac
     shift
@@ -29,7 +31,7 @@ TARGET=${5}
 FRAME_SKIP=${6}
 DATASET=${7}
 
-CHUNK_SIZE=500 # Process 500 frames at a time
+CHUNK_SIZE=1000 # Process 1000 frames at a time (visibility filter selects best frames within)
 JSON_DIR="${PREFIX}/${TARGET}/2d_joint"
 RESULTS_DIR="${PREFIX}/results"
 CHUNK_RESULTS_DIR="${RESULTS_DIR}/chunks"
@@ -169,7 +171,8 @@ for i in $(seq 0 $((NUM_CHUNKS - 1))); do
         --dataset ${DATASET} \
         --frame_start ${FRAME_START} \
         --frame_end ${FRAME_END} \
-        --chunk_id ${i}
+        --chunk_id ${i} \
+        --conf_threshold ${CONF_THRESHOLD}
 done
 
 # --- 3. Évaluer chaque chunk et trouver le meilleur ---
@@ -184,7 +187,8 @@ for chunk_file in $(ls -v "${CHUNK_RESULTS_DIR}"/linear_chunk_*.json 2>/dev/null
 
     OUTPUT=$(python3 evaluate_calibration.py \
         --prefix "${PREFIX}" \
-        --calib "chunks/linear_chunk_${CHUNK_ID}")
+        --calib "chunks/linear_chunk_${CHUNK_ID}" \
+        --conf_threshold ${CONF_THRESHOLD})
 
     echo "${OUTPUT}"
 

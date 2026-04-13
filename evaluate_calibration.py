@@ -45,14 +45,14 @@ except ImportError:
 sys.path.insert(0, os.path.abspath("./"))
 from util import load_poses, load_eldersim_camera
 
-def triangulate_skeleton(p2d_all, s2d_all, K, R_w2c, t_w2c):
+def triangulate_skeleton(p2d_all, s2d_all, K, R_w2c, t_w2c, conf_threshold=0.5):
     C, N, J, _ = p2d_all.shape
     X3d = np.full((N, J, 3), np.nan)
     Ps_all = [K[c] @ np.hstack([R_w2c[c], t_w2c[c].reshape(3, 1)]) for c in range(C)]
 
     for n in range(N):
         for j in range(J):
-            vis_mask = s2d_all[:, n, j] > 0.5
+            vis_mask = s2d_all[:, n, j] > conf_threshold
             if np.sum(vis_mask) < 2:
                 continue
             
@@ -90,12 +90,14 @@ def reproject_points(X3d_world, K, R_w2c, t_w2c):
             
     return p2d_reprojected_all
 
-def draw_visualization(image, p2d_original, p2d_reprojected, s2d, title):
+def draw_visualization(image, p2d_original, p2d_reprojected, s2d, title, conf_threshold=0.5):
     vis_img = image.copy()
-    valid_mask = s2d > 0.5
+    valid_mask = s2d > conf_threshold
 
     for j in range(p2d_original.shape[0]):
         if valid_mask[j]:
+            if np.any(np.isnan(p2d_reprojected[j])) or np.any(np.isinf(p2d_reprojected[j])):
+                continue
             orig_pt = tuple(p2d_original[j].astype(int))
             reproj_pt = tuple(p2d_reprojected[j].astype(int))
 
@@ -151,6 +153,7 @@ def main():
     # TOML export arguments
     parser.add_argument("--input_toml", default=None, help="Path to the input TOML file to use as a template")
     parser.add_argument("--export_toml", default=None, help="Path to save the final calibrated TOML file")
+    parser.add_argument("--conf_threshold", type=float, default=0.5, help="Confidence threshold for 2D keypoints")
     args = parser.parse_args()
 
     if args.visualize and not args.video_dir:
@@ -166,7 +169,7 @@ def main():
         sys.exit(1)
 
     # --- Load Data ---
-    CAMID, K, R_w2c, t_w2c = load_eldersim_camera(calib_json_path)
+    CAMID, K, R_w2c, t_w2c, _dist = load_eldersim_camera(calib_json_path)
     camera_ids = CAMID
 
     # --- TOML Export Logic ---
@@ -204,10 +207,10 @@ def main():
     p2d_all = np.array([p[:min_frames].reshape(min_frames, num_joints, 2) for p in p2d_list])
     s2d_all = np.array([s[:min_frames].reshape(min_frames, num_joints) for s in s2d_list])
 
-    X3d_world = triangulate_skeleton(p2d_all, s2d_all, K, R_w2c, t_w2c)
+    X3d_world = triangulate_skeleton(p2d_all, s2d_all, K, R_w2c, t_w2c, args.conf_threshold)
     p2d_reprojected_all = reproject_points(X3d_world, K, R_w2c, t_w2c)
     all_errors = np.linalg.norm(p2d_all - p2d_reprojected_all, axis=-1)
-    valid_mask = (s2d_all > 0.5) & ~np.isnan(all_errors)
+    valid_mask = (s2d_all > args.conf_threshold) & ~np.isnan(all_errors)
 
     print(f"\nEvaluating calibration: {args.calib}.json")
     global_mre = np.mean(all_errors[valid_mask])
@@ -241,7 +244,7 @@ def main():
                 ret, img = cap.read()
                 if ret:
                     title = f"Cam {cam_id} - {frame_type.capitalize()} Frame (MRE: {frame_errors[frame_idx]:.2f}px)"
-                    vis_img = draw_visualization(img, p2d_all[c, frame_idx], p2d_reprojected_all[c, frame_idx], s2d_all[c, frame_idx], title)
+                    vis_img = draw_visualization(img, p2d_all[c, frame_idx], p2d_reprojected_all[c, frame_idx], s2d_all[c, frame_idx], title, args.conf_threshold)
                     out_path = os.path.join(vis_dir, f"cam{cam_id}_{frame_type}.png")
                     cv2.imwrite(out_path, vis_img)
                     print(f"  Saved: {out_path}")

@@ -48,6 +48,8 @@ def parse_args(predefined_args=None):
 
     parser.add_argument("--vis_type", type=str, default="2d")
     parser.add_argument("--device", type=str, default="cuda", choices=["cuda", "cpu"], help="Device to use (cuda or cpu)")
+    parser.add_argument("--pose_engine", type=str, default="rtmpose", choices=["rtmpose", "metrabs"], help="Pose estimation engine: rtmpose (2D+lifting) or metrabs (direct 3D)")
+    parser.add_argument("--conf_threshold", type=float, default=0.5, help="Confidence threshold for 2D keypoints")
     
     # Arguments for chunking
     parser.add_argument("--frame_start", type=int, default=None, help="Start frame for chunk processing.")

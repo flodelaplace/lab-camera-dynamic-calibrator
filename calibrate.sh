@@ -18,9 +18,15 @@
 #   --start_frame <s> : Start frame for calibration.
 #   --end_frame <e>   : End frame for calibration.
 #   --frame_skip <n>  : Interval between frames used for calibration (default: 10).
+#   --conf_threshold <t>: Confidence threshold for 2D keypoints (default: 0.5).
+#   --save_video      : Generate and save an overlay video of 2D pose estimation.
+#   --pose_engine <e> : 'rtmpose' (default) or 'metrabs'. MeTRAbs replaces RTMPose+VideoPose3D.
 # =============================================================================
 
 set -e  # Stop on error
+
+# --- WSL2 CUDA fix ---
+export LD_LIBRARY_PATH=/usr/lib/wsl/lib:${LD_LIBRARY_PATH:-}
 
 # --- Default values ---
 DEVICE="cuda"
@@ -30,6 +36,9 @@ REF_FRAME=""
 START_FRAME=""
 END_FRAME=""
 FRAME_SKIP=10
+CONF_THRESHOLD=0.5
+SAVE_VIDEO=""
+POSE_ENGINE="rtmpose"
 
 # --- Parse arguments ---
 # Positional arguments
@@ -41,15 +50,21 @@ shift 3
 
 # Parse optional named arguments
 while [[ "$#" -gt 0 ]]; do
-    case $1 in
-        --height) PERSON_HEIGHT="$2"; shift ;;
-        --ref_frame) REF_FRAME="$2"; shift ;;
-        --start_frame) START_FRAME="$2"; shift ;;
-        --end_frame) END_FRAME="$2"; shift ;;
-        --frame_skip) FRAME_SKIP="$2"; shift ;;
-        cuda|cpu) DEVICE="$1" ;;
-        lightweight|balanced|performance) MODE="$1" ;;
-        *) echo "Unknown parameter passed: $1"; exit 1 ;;
+    # Nettoyage ultra-agressif : ne conserve que les lettres, chiffres, tirets et underscores
+    PARAM=$(echo "$1" | tr -cd '[:alnum:]_-')
+    VAL=$(echo "$2" | tr -d '\r\n')
+    case $PARAM in
+        --height) PERSON_HEIGHT="$VAL"; shift ;;
+        --ref_frame) REF_FRAME="$VAL"; shift ;;
+        --start_frame) START_FRAME="$VAL"; shift ;;
+        --end_frame) END_FRAME="$VAL"; shift ;;
+        --frame_skip) FRAME_SKIP="$VAL"; shift ;;
+        --conf_threshold) CONF_THRESHOLD="$VAL"; shift ;;
+        --save_video) SAVE_VIDEO="--save_video" ;;
+        --pose_engine) POSE_ENGINE="$VAL"; shift ;;
+        cuda|cpu) DEVICE="$PARAM" ;;
+        lightweight|balanced|performance) MODE="$PARAM" ;;
+        *) echo "Unknown parameter passed: $PARAM"; exit 1 ;;
     esac
     shift
 done
@@ -73,7 +88,7 @@ SUBSET="noise_1_0"
 DATASET="MyDataset"
 MODEL="pretrained_h36m_detectron_coco.bin"
 LAMBDA1=1.
-LAMBDA2=100000.
+LAMBDA2=1.
 
 echo ""
 echo "╔══════════════════════════════════════════════════════════════╗"
@@ -83,27 +98,83 @@ echo "║  Video Dir  : ${VIDEO_DIR}"
 echo "║  Calib TOML : ${CALIB_TOML}"
 echo "║  Output Dir : ${OUTPUT_DIR}"
 echo "║  Session IDs: AID=${AID}, PID=${PID}, GID=${GID}"
-echo "║  Device     : ${DEVICE}   Mode: ${MODE}"
-echo "║  Frame Skip : ${FRAME_SKIP}"
+echo "║  Pose Engine: ${POSE_ENGINE}"
+echo "║  Device     : ${DEVICE}         Mode: ${MODE}"
+echo "║  Frame Skip : ${FRAME_SKIP}             Conf Threshold: ${CONF_THRESHOLD}"
 if [ -n "$START_FRAME" ]; then
 echo "║  Calib Range: Frames ${START_FRAME} to ${END_FRAME}"
 fi
 if [ -n "$PERSON_HEIGHT" ]; then
 echo "║  Scaling    : Height=${PERSON_HEIGHT}m, Ref Frame=${REF_FRAME}"
 fi
+if [ -n "$SAVE_VIDEO" ]; then
+echo "║  Save Video : Enabled (RTMPose overlay)"
+fi
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo ""
 
 mkdir -p "${OUTPUT_DIR}"
 
-# --- Step 1: 2D pose extraction ---------------------------------------------
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "[1/7] Extracting 2D poses with RTMPose..."
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "  -> frame range: ${START_FRAME:-0} to ${END_FRAME:-<end>}"
-python3 rtmlib_inference.py --video_dir "${VIDEO_DIR}" --output_dir "${OUTPUT_DIR}" --aid ${AID} --pid ${PID} --gid ${GID} --subset_name "${SUBSET}" --device ${DEVICE} --mode ${MODE} \
-    $( [ -n "${START_FRAME}" ] && echo --start_frame "${START_FRAME}" ) \
-    $( [ -n "${END_FRAME}" ] && echo --end_frame "${END_FRAME}" )
+# --- Step 1: Pose extraction --------------------------------------------------
+if [ "$POSE_ENGINE" = "metrabs" ]; then
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "[1/7] Extracting 2D+3D poses with MeTRAbs (replaces steps 1+4)..."
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "  -> frame range: ${START_FRAME:-0} to ${END_FRAME:-<end>}"
+
+    # Check if poses already exist with matching frame range
+    POSES_EXIST=false
+    JOINT2D_DIR="${OUTPUT_DIR}/${SUBSET}/2d_joint"
+    JOINT3D_DIR="${OUTPUT_DIR}/${SUBSET}/3d_joint"
+    if [ -d "${JOINT2D_DIR}" ] && [ -d "${JOINT3D_DIR}" ]; then
+        N_2D=$(find "${JOINT2D_DIR}" -name "*.json" | wc -l)
+        N_3D=$(find "${JOINT3D_DIR}" -name "*.json" | wc -l)
+        if [ "$N_2D" -gt 0 ] && [ "$N_2D" -eq "$N_3D" ]; then
+            # Check frame range of first file
+            FIRST_FILE=$(find "${JOINT2D_DIR}" -name "*.json" | sort | head -1)
+            EXISTING_RANGE=$(python3 -c "
+import json, sys
+with open('${FIRST_FILE}') as f:
+    d = json.load(f)
+    print(f\"{d['data'][0]['frame_index']} {d['data'][-1]['frame_index']} {len(d['data'])}\")
+" 2>/dev/null)
+            if [ -n "$EXISTING_RANGE" ]; then
+                EX_START=$(echo $EXISTING_RANGE | cut -d' ' -f1)
+                EX_END=$(echo $EXISTING_RANGE | cut -d' ' -f2)
+                EX_COUNT=$(echo $EXISTING_RANGE | cut -d' ' -f3)
+                WANT_START=${START_FRAME:-0}
+                WANT_END=${END_FRAME:-$EX_END}
+                if [ "$EX_START" -eq "$WANT_START" ] && [ "$EX_END" -eq "$WANT_END" ]; then
+                    POSES_EXIST=true
+                    echo "  -> Found existing poses: ${N_2D} cameras, ${EX_COUNT} frames (${EX_START}-${EX_END})"
+                    echo "  -> Skipping MeTRAbs inference (reusing cached results)"
+                fi
+            fi
+        fi
+    fi
+
+    if [ "$POSES_EXIST" = false ]; then
+        SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+        PYTHONUNBUFFERED=1 conda run --live-stream -n metrabs python -u "${SCRIPT_DIR}/metrabs_inference.py" \
+            --video_dir "${VIDEO_DIR}" \
+            --calib_toml "${CALIB_TOML}" \
+            --output_dir "${OUTPUT_DIR}" \
+            --aid ${AID} --pid ${PID} --gid ${GID} \
+            --subset_name "${SUBSET}" \
+            --batch_size 8 \
+            $( [ -n "${START_FRAME}" ] && echo --start_frame "${START_FRAME}" ) \
+            $( [ -n "${END_FRAME}" ] && echo --end_frame "${END_FRAME}" )
+    fi
+else
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "[1/7] Extracting 2D poses with RTMPose..."
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "  -> frame range: ${START_FRAME:-0} to ${END_FRAME:-<end>}"
+    python3 rtmlib_inference.py --video_dir "${VIDEO_DIR}" --output_dir "${OUTPUT_DIR}" --aid ${AID} --pid ${PID} --gid ${GID} --subset_name "${SUBSET}" --device ${DEVICE} --mode ${MODE} \
+        $( [ -n "${START_FRAME}" ] && echo --start_frame "${START_FRAME}" ) \
+        $( [ -n "${END_FRAME}" ] && echo --end_frame "${END_FRAME}" ) \
+        ${SAVE_VIDEO}
+fi
 
 
 ## --- Step 1.5: Create frame mapping if a range is specified -------------------
@@ -165,7 +236,15 @@ start_frame = int("${START_FRAME}")
 end_frame = int("${END_FRAME}")
 
 num_frames = end_frame - start_frame + 1
-num_joints = 25 # OpenPose format
+# Detect joint count from existing 2D files (25 for RTMPose, 26 for MeTRAbs)
+import glob as _g
+_jf = sorted(_g.glob(os.path.join(output_dir, subset, "2d_joint", "*.json")))
+if _jf:
+    with open(_jf[0]) as _f:
+        import json as _j
+        num_joints = len(_j.load(_f)["data"][0]["skeleton"][0]["score"])
+else:
+    num_joints = 25
 
 # RTMPose keeps original frame numbers (e.g. 1500 to 2499)
 frame_indices = list(range(start_frame, end_frame + 1))
@@ -193,20 +272,30 @@ output_dir, subset, calib_toml, aid, pid, gid = "${OUTPUT_DIR}", "${SUBSET}", "$
 cam_file = os.path.join(output_dir, subset, f"cameras_G{gid:03d}.json")
 with open(cam_file) as f: n_cams = len(json.load(f)["CAMID"])
 jfiles = sorted(glob.glob(os.path.join(output_dir, subset, "2d_joint", f"A{aid:03d}_P{pid:03d}_G{gid:03d}_C*.json")))
-with open(jfiles[0]) as f: n_frames = len(json.load(f)["data"])
+with open(jfiles[0]) as f:
+    jdata = json.load(f)
+    n_frames = len(jdata["data"])
+    n_joints = len(jdata["data"][0]["skeleton"][0]["score"])
 with open("./config/config.yaml") as f: config = yaml.safe_load(f)
-config["MyDataset"] = {"width": 1920, "height": 1080, "scale": 1, "frame_rate": 30, "camera_ids": list(range(1, n_cams + 1)), "available_joints": list(range(15)), "ransac_th_2d": 200.0, "ransac_th_3d": 1.0}
+config["MyDataset"] = {"width": 1920, "height": 1080, "scale": 1, "frame_rate": 30, "camera_ids": list(range(1, n_cams + 1)), "available_joints": list(range(n_joints)), "ransac_th_2d": 200.0, "ransac_th_3d": 1.0}
 config.update({"aid": aid, "pid": pid, "gid": gid})
 with open("./config/config.yaml", "w") as f: yaml.dump(config, f, default_flow_style=False, allow_unicode=True)
 print(f"Config updated: {n_cams} cameras, {n_frames} frames")
 PYEOF
 
 # --- Step 4: Lifting 2D -> 3D ------------------------------------------------
-echo ""
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "[4/7] Lifting 2D -> 3D with VideoPose3D..."
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-bash ./inference.sh "${OUTPUT_DIR}" ${AID} ${PID} ${GID} ${SUBSET} ${MODEL} ${DATASET} ${DEVICE}
+if [ "$POSE_ENGINE" = "metrabs" ]; then
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "[4/7] Skipped (3D already extracted by MeTRAbs in step 1)"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+else
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "[4/7] Lifting 2D -> 3D with VideoPose3D..."
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    bash ./inference.sh "${OUTPUT_DIR}" ${AID} ${PID} ${GID} ${SUBSET} ${MODEL} ${DATASET} ${DEVICE}
+fi
 
 # --- Step 5: Extrinsic calibration ------------------------------------------
 echo ""
@@ -216,7 +305,7 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo "  → Running linear calibration by chunks..."
 
 # Data are already cropped, just calibrate on all locally available frames (index 0 to N-1)
-bash ./calib_linear.sh "${OUTPUT_DIR}" ${AID} ${PID} ${GID} ${SUBSET} ${FRAME_SKIP} ${DATASET}
+bash ./calib_linear.sh --conf_threshold ${CONF_THRESHOLD} "${OUTPUT_DIR}" ${AID} ${PID} ${GID} ${SUBSET} ${FRAME_SKIP} ${DATASET}
 
 # Verify linear calibration result exists
 FINAL_LINEAR_JSON="${OUTPUT_DIR}/results/linear_1_0.json"
@@ -226,7 +315,7 @@ if [ ! -f "${FINAL_LINEAR_JSON}" ]; then
     exit 1
 fi
 echo "  → Bundle Adjustment (linear)..."
-bash ./ba.sh "${OUTPUT_DIR}" ${AID} ${PID} ${GID} ${FRAME_SKIP} ${LAMBDA1} ${LAMBDA2} linear_1_0 ${DATASET} false true
+bash ./ba.sh "${OUTPUT_DIR}" ${AID} ${PID} ${GID} ${FRAME_SKIP} ${LAMBDA1} ${LAMBDA2} linear_1_0 ${DATASET} false true ${CONF_THRESHOLD}
 
 # --- Step 6: Evaluation and Visualization ---------------------------------------
 echo ""
@@ -238,7 +327,7 @@ BEST_MRE=99999
 BEST_CALIB=""
 for CALIB in linear_1_0 linear_1_0_ba; do
     if [ -f "${OUTPUT_DIR}/results/${CALIB}.json" ]; then
-        OUTPUT=$(python3 evaluate_calibration.py --prefix "${OUTPUT_DIR}" --calib "${CALIB}" --video_dir "${VIDEO_DIR}" --visualize \
+        OUTPUT=$(python3 evaluate_calibration.py --prefix "${OUTPUT_DIR}" --calib "${CALIB}" --video_dir "${VIDEO_DIR}" --visualize --conf_threshold ${CONF_THRESHOLD} \
             $( [ -n "${START_FRAME}" ] && echo --start_frame "${START_FRAME}" ))
         echo "${OUTPUT}"
         MRE=$(echo "${OUTPUT}" | grep "Global MRE" | awk '{print $4}')
@@ -247,7 +336,7 @@ for CALIB in linear_1_0 linear_1_0_ba; do
             if (( $(echo "$MRE < $BEST_MRE" | bc -l) )); then BEST_MRE=$MRE; BEST_CALIB=$CALIB; fi
         fi
         echo "  → 3D Visualization for ${CALIB}..."
-        python3 visualize_results.py --prefix "${OUTPUT_DIR}" --subset "${SUBSET}" --calib "${CALIB}" --dataset ${DATASET} --output "${OUTPUT_DIR}/results/camera/visu_3d_${CALIB}.gif" || echo "  ⚠ Visu ${CALIB} failed"
+        python3 visualize_results.py --prefix "${OUTPUT_DIR}" --subset "${SUBSET}" --calib "${CALIB}" --dataset ${DATASET} --output "${OUTPUT_DIR}/results/camera/visu_3d_${CALIB}.gif" --conf_threshold ${CONF_THRESHOLD} || echo "  ⚠ Visu ${CALIB} failed"
     fi
 done
 
@@ -274,7 +363,9 @@ if [ -n "$PERSON_HEIGHT" ] && [ -n "$REF_FRAME" ] && [ -n "$BEST_CALIB" ]; then
         --frame_idx ${MAPPED_REF_FRAME} \
         --input_toml "${CALIB_TOML}" \
         --export_toml "${FINAL_TOML_PATH}" \
-        --video_dir "${VIDEO_DIR}"
+        --video_dir "${VIDEO_DIR}" \
+        --conf_threshold ${CONF_THRESHOLD} \
+        --pose_engine ${POSE_ENGINE}
 
     FINAL_CALIB_NAME="${BEST_CALIB}_oriented_scaled"
     if [ -f "${OUTPUT_DIR}/results/${FINAL_CALIB_NAME}.json" ]; then
@@ -284,7 +375,9 @@ if [ -n "$PERSON_HEIGHT" ] && [ -n "$REF_FRAME" ] && [ -n "$BEST_CALIB" ]; then
             --subset  "${SUBSET}" \
             --calib   "${FINAL_CALIB_NAME}" \
             --dataset ${DATASET} \
-            --output  "${OUTPUT_DIR}/results/camera/visu_3d_FINAL.gif"
+            --output  "${OUTPUT_DIR}/results/camera/visu_3d_FINAL.gif" \
+            --export_trc "${OUTPUT_DIR}/results/3d_skeleton_FINAL.trc" \
+            --conf_threshold ${CONF_THRESHOLD}
     fi
 fi
 
@@ -310,6 +403,8 @@ if [ -n "$FINAL_CALIB_NAME" ]; then
     echo "║──────────────────────────────────────────────────────────────║"
     echo "║  Final TOML file generated:                                  ║"
     printf "║    results/%s\n" "$(basename ${FINAL_TOML_PATH})"
+    echo "║  Final TRC file (3D Poses):                                  ║"
+    echo "║    results/3d_skeleton_FINAL.trc                             ║"
     echo "║  Final visualization:                                        ║"
     echo "║    results/camera/visu_3d_FINAL.gif                          ║"
 else

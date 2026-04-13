@@ -10,6 +10,7 @@ import scipy as sp
 # from numba import jit
 from argument import parse_args
 from util import *
+from util import get_bone_config
 import pycalib
 
 # module_path = os.path.abspath(os.path.join('./pycalib/'))
@@ -126,9 +127,109 @@ def calib_linear(v_CxNx3, n_CxMx3):
     return R_w2c_list, t_w2c_list.reshape((-1, 3, 1)), X2
 
 
+def procrustes_align(X_src, X_tgt):
+    """Find R, t, s such that X_tgt ≈ s * R @ X_src + t (Umeyama method).
+
+    Args:
+        X_src: (N, 3) source points
+        X_tgt: (N, 3) target points
+    Returns:
+        R (3,3), t (3,), s (float)
+    """
+    n = X_src.shape[0]
+    mu_src = X_src.mean(axis=0)
+    mu_tgt = X_tgt.mean(axis=0)
+    X_src_c = X_src - mu_src
+    X_tgt_c = X_tgt - mu_tgt
+
+    var_src = np.sum(X_src_c ** 2) / n
+
+    H = X_src_c.T @ X_tgt_c / n
+    U, D, Vt = np.linalg.svd(H)
+
+    S = np.eye(3)
+    if np.linalg.det(U) * np.linalg.det(Vt) < 0:
+        S[2, 2] = -1
+
+    R = Vt.T @ S @ U.T
+    s = np.trace(np.diag(D) @ S) / var_src
+    t = mu_tgt - s * R @ mu_src
+
+    return R, t, s
+
+
+def calib_procrustes(p3d_CxNxJx3, s3d_CxNxJ, K_all, p2d_CxNxJx2, s2d_CxNxJ, conf_threshold=0.5):
+    """Estimate extrinsic calibration using Procrustes alignment of per-camera 3D poses.
+
+    Uses camera 0 as reference frame. For each other camera, aligns its 3D skeleton
+    to camera 0's skeleton to get relative R, t.
+
+    Returns:
+        R_w2c (C, 3, 3), t_w2c (C, 3, 1), X_world (M, 3)
+    """
+    C, N, J, _ = p3d_CxNxJx3.shape
+    mask = s3d_CxNxJ > 0  # (C, N, J)
+
+    # Reference camera is camera 0 — its 3D defines the world frame
+    R_w2c_list = [np.eye(3)]
+    t_w2c_list = [np.zeros(3)]
+
+    ref_3d = p3d_CxNxJx3[0]  # (N, J, 3) — reference camera's 3D
+
+    for c in range(1, C):
+        cam_3d = p3d_CxNxJx3[c]  # (N, J, 3)
+
+        # Find frames+joints visible in both cameras
+        joint_mask = mask[0] & mask[c]  # (N, J)
+        valid_idx = np.where(joint_mask.flatten())[0]
+
+        if len(valid_idx) < 10:
+            print(f"  WARN: Camera {c} — only {len(valid_idx)} shared points, using identity")
+            R_w2c_list.append(np.eye(3))
+            t_w2c_list.append(np.zeros(3))
+            continue
+
+        pts_ref = ref_3d.reshape(-1, 3)[valid_idx]
+        pts_cam = cam_3d.reshape(-1, 3)[valid_idx]
+
+        # Procrustes: find R, t, s such that pts_cam ≈ s * R @ pts_ref + t
+        # This gives us R_cam_from_ref and t_cam_from_ref
+        R, t, s = procrustes_align(pts_ref, pts_cam)
+
+        # R_w2c[c] = R (world=ref frame -> camera c frame)
+        R_w2c_list.append(R)
+        t_w2c_list.append(t)
+
+        residual = np.mean(np.linalg.norm(pts_cam - (s * (R @ pts_ref.T).T + t), axis=1))
+        print(f"  Camera {c}: Procrustes residual = {residual:.2f}mm, scale = {s:.4f}")
+
+    R_w2c = np.array(R_w2c_list)
+    t_w2c = np.array(t_w2c_list).reshape(-1, 3, 1)
+
+    # Triangulate world points using the estimated extrinsics
+    joint_mask_2d = s2d_CxNxJ > conf_threshold
+    P_list = []
+    for c in range(C):
+        P_list.append(K_all[c] @ np.hstack([R_w2c[c], t_w2c[c]]))
+
+    X_world = []
+    for f in range(N):
+        for j in range(J):
+            pts2d = p2d_CxNxJx2[:, f, j, :]
+            vis = joint_mask_2d[:, f, j]
+            if vis.sum() >= 2:
+                x3d = pycalib.calib.triangulate(pts2d[vis], np.array(P_list)[vis])[:3]
+            else:
+                x3d = np.full(3, np.nan)
+            X_world.append(x3d)
+    X_world = np.array(X_world).reshape(N * J, 3)
+
+    return R_w2c, t_w2c, X_world
+
+
 def main_linear(
     dirname, gid, aid, pid, bone_idx, joint_idx, bObs_mask, *, 
-    frame_start=None, frame_end=None, frame_skip=1
+    frame_start=None, frame_end=None, frame_skip=1, conf_threshold=0.5
 ):
 
     if bObs_mask:
@@ -154,11 +255,41 @@ def main_linear(
     s3d = s3d[:, ::frame_skip, :]
     s2d = s2d[:, ::frame_skip, :]
 
-    if p3d.shape[1] == 0:
+    N_after = p3d.shape[1]
+    n_joints = p3d.shape[2]
+
+    if N_after == 0:
         print("WARN: No frames left after chunking/skipping. Skipping this chunk.")
         return None, None, None, None, None, None
 
-    mask_CxNxJ = (s2d > 0.5) * (s3d == 1) # Ignore les prédictions peu fiables (frames noires/floues)
+    mask_CxNxJ = (s2d > conf_threshold) * (s3d > conf_threshold) # Ignore les prédictions peu fiables (frames noires/floues)
+
+    # --- Visibility-based frame selection ---
+    # Only keep frames where the person is visible from enough cameras
+    C = p3d.shape[0]
+    frame_vis = mask_CxNxJ.any(axis=2).sum(axis=0)  # (N,) cameras seeing person per frame
+    min_cams = max(2, (C * 2 + 2) // 3)  # >= 2/3 of cameras (rounded up)
+
+    good = frame_vis >= min_cams
+    if good.sum() < 20:
+        # Fallback: lower threshold if too few frames
+        min_cams = 2
+        good = frame_vis >= min_cams
+
+    n_dropped = N_after - int(good.sum())
+    if n_dropped > 0:
+        print(f"  Visibility filter: {int(good.sum())}/{N_after} frames "
+              f"(>= {min_cams}/{C} cameras)")
+        p3d = p3d[:, good, :, :]
+        p2d = p2d[:, good, :, :]
+        s3d = s3d[:, good, :]
+        s2d = s2d[:, good, :]
+        mask_CxNxJ = mask_CxNxJ[:, good, :]
+        N_after = int(good.sum())
+
+    if N_after == 0:
+        print("WARN: No frames left after visibility filter. Skipping.")
+        return None, None, None, None, None, None
 
     vc = joints2orientations(p3d, mask_CxNxJ, bone_idx)
     if vc.shape[1] == 0:
@@ -178,13 +309,41 @@ def main_linear(
 
     print(f"Processing chunk: vc={vc.shape}, n={n.shape}")
 
-    R_w2c_est, t_w2c_est, p3d_w_est = calib_linear(vc, n)
-    
+    # Try Procrustes first if we have good 3D data (MeTRAbs, 26 joints)
+    n_joints = p3d.shape[2]
+    use_procrustes = (n_joints == 26 and np.any(s3d > 0))
+
+    if use_procrustes:
+        print("  Using Procrustes initialization (MeTRAbs 3D available)")
+        R_w2c_est, t_w2c_est, p3d_w_est = calib_procrustes(
+            p3d, s3d, K, p2d, s2d, conf_threshold
+        )
+        p3d_w_est_flat = p3d_w_est.reshape(-1, 3)
+        # Remove NaN rows for reprojection error calculation
+        valid_3d = ~np.isnan(p3d_w_est_flat).any(axis=1)
+    else:
+        R_w2c_est, t_w2c_est, p3d_w_est = calib_linear(vc, n)
+
     if R_w2c_est is None:
         return None, None, None, None, None, None
 
     e = 0
-    if p3d_w_est is not None and y.shape[1] > 0:
+    if use_procrustes and p3d_w_est is not None:
+        # Procrustes path: X_world is (N*J, 3), use full p2d/s2d for MRE
+        X_w = p3d_w_est.reshape(N_after, n_joints, 3)
+        E = []
+        for c in range(len(K)):
+            for f in range(N_after):
+                for j in range(n_joints):
+                    if s2d[c, f, j] > conf_threshold and not np.isnan(X_w[f, j]).any():
+                        pt3d = X_w[f, j]
+                        proj = K[c] @ (R_w2c_est[c] @ pt3d + t_w2c_est[c].flatten())
+                        proj = proj[:2] / proj[2]
+                        obs = p2d[c, f, j, :]
+                        E.append(np.linalg.norm(obs - proj))
+        e = np.mean(E) if E else 999.0
+    elif p3d_w_est is not None and y.shape[1] > 0:
+        # Linear path: p3d_w_est matches y (filtered visible points)
         E = []
         for k, R, t, pts2d in zip(K, R_w2c_est, t_w2c_est, y):
             p = k @ (R @ p3d_w_est.T + t)
@@ -216,11 +375,23 @@ if __name__ == "__main__":
 
     print(f"dataset={DATASET}")
     
+    # Auto-detect skeleton: peek at a 3D joint file to get the number of joints
+    import glob as _glob
+    _j3d_files = sorted(_glob.glob(os.path.join(PREFIX, "3d_joint", f"A{AID:03d}_P{PID:03d}_G{GID:03d}_C*.json")))
+    if _j3d_files:
+        with open(_j3d_files[0]) as _f:
+            _n_joints = len(json.load(_f)["data"][0]["skeleton"][0]["score"])
+    else:
+        _n_joints = 25
+    _bone_idx, _key_sub = get_bone_config(_n_joints)
+    print(f"Detected {_n_joints} joints -> using {len(_bone_idx)} bones")
+
     R, t, X, e, CAMID, K = main_linear(
-        PREFIX, GID, AID, PID, OP_BONE, OP_KEY_SUB, OBS_MASK, 
-        frame_start=args.frame_start, 
+        PREFIX, GID, AID, PID, _bone_idx, _key_sub, OBS_MASK,
+        frame_start=args.frame_start,
         frame_end=args.frame_end,
-        frame_skip=args.frame_skip
+        frame_skip=args.frame_skip,
+        conf_threshold=args.conf_threshold
     )
 
     if R is not None:

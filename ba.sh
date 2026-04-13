@@ -2,7 +2,7 @@
 if [ $# -lt 11 ]; then
     echo
     echo $0
-    echo "[Usage] PREFIX AID PID GID FRAME_SKIP LAMBDA1 LAMBDA2 TARGET DATASET OBS_MASK SAVE_OBS_MASK"
+    echo "[Usage] PREFIX AID PID GID FRAME_SKIP LAMBDA1 LAMBDA2 TARGET DATASET OBS_MASK SAVE_OBS_MASK [CONF_THRESHOLD]"
     echo "[e.g.] sh ./ba.sh ./data/A023_P102_G003 23 102 3 1 1. 100000. linear_3_0 SynADL false false"
     exit
 fi
@@ -18,6 +18,7 @@ TARGET=${8}
 DATASET=${9}
 OBS_MASK=${10}
 SAVE_OBS_MASK=${11}
+CONF_THRESHOLD=${12:-0.5}
 
 MAX_FRAME_SKIP=60
 CURRENT_FRAME_SKIP=${FRAME_SKIP}
@@ -38,7 +39,8 @@ while true; do
         --dataset ${DATASET} \
         --obs_mask ${OBS_MASK} \
         --th_obs_mask 20 \
-        --save_obs_mask ${SAVE_OBS_MASK}
+        --save_obs_mask ${SAVE_OBS_MASK} \
+        --conf_threshold ${CONF_THRESHOLD}
 
     # Check the exit code of the last command
     if [ $? -eq 0 ]; then

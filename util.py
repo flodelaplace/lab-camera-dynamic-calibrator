@@ -152,10 +152,237 @@ def mk_bone_sub(bones, subjoints):
     k = subjoints
     v = np.arange(len(subjoints))
     sidx = k.argsort()
-    return v[sidx[np.searchsorted(k, OP_BONE, sorter=sidx)]]
+    return v[sidx[np.searchsorted(k, bones, sorter=sidx)]]
 
 
 OP_BONE_SUB = mk_bone_sub(OP_BONE, OP_KEY_SUB)
+
+
+# ---------------------------------------------------------------------------
+# MeTRAbs 26-joint skeleton for calibration (bml_movi_87 subset)
+# 20 virtual joint centers + backneck + sternum + 4 foot markers
+# ---------------------------------------------------------------------------
+METRABS_KEY = {
+    "head":     0,
+    "backneck": 1,
+    "thor":     2,
+    "sternum":  3,
+    "pelv":     4,
+    "mhip":     5,
+    "lsho":     6,
+    "rsho":     7,
+    "lelb":     8,
+    "relb":     9,
+    "lwri":     10,
+    "rwri":     11,
+    "lhan":     12,
+    "rhan":     13,
+    "lhip":     14,
+    "rhip":     15,
+    "lkne":     16,
+    "rkne":     17,
+    "lank":     18,
+    "rank":     19,
+    "lfoo":     20,
+    "rfoo":     21,
+    "lhee":     22,
+    "rhee":     23,
+    "ltoe":     24,
+    "rtoe":     25,
+}
+
+# Indices in bml_movi_87 corresponding to each METRABS_KEY joint (ordered by local index)
+METRABS_BML87_INDICES = [67, 0, 70, 3, 69, 68, 76, 84, 72, 80, 77, 85, 74, 82, 73, 81, 75, 83, 71, 79, 78, 86, 21, 52, 23, 54]
+
+MK = METRABS_KEY  # shorthand
+
+METRABS_BONE = np.array(
+    [
+        # Spine (4 bones — vs 1 in OP_BONE)
+        [MK["mhip"],    MK["pelv"]],
+        [MK["pelv"],    MK["thor"]],
+        [MK["thor"],    MK["backneck"]],
+        [MK["backneck"],MK["head"]],
+        # Torso cross-constraints
+        [MK["sternum"], MK["thor"]],
+        [MK["lsho"],    MK["rsho"]],      # shoulder width
+        [MK["lhip"],    MK["rhip"]],       # hip width
+        # Shoulder connections
+        [MK["thor"],    MK["lsho"]],
+        [MK["thor"],    MK["rsho"]],
+        # Hip connections
+        [MK["pelv"],    MK["lhip"]],
+        [MK["pelv"],    MK["rhip"]],
+        # Left arm (3 bones)
+        [MK["lsho"],    MK["lelb"]],
+        [MK["lelb"],    MK["lwri"]],
+        [MK["lwri"],    MK["lhan"]],
+        # Right arm (3 bones)
+        [MK["rsho"],    MK["relb"]],
+        [MK["relb"],    MK["rwri"]],
+        [MK["rwri"],    MK["rhan"]],
+        # Left leg (3 bones)
+        [MK["lhip"],    MK["lkne"]],
+        [MK["lkne"],    MK["lank"]],
+        [MK["lank"],    MK["lfoo"]],
+        # Right leg (3 bones)
+        [MK["rhip"],    MK["rkne"]],
+        [MK["rkne"],    MK["rank"]],
+        [MK["rank"],    MK["rfoo"]],
+        # Feet (4 bones — new)
+        [MK["lank"],    MK["lhee"]],
+        [MK["lhee"],    MK["ltoe"]],
+        [MK["rank"],    MK["rhee"]],
+        [MK["rhee"],    MK["rtoe"]],
+    ],
+    dtype=int,
+)  # 27 bones total (vs 12 for OP_BONE)
+
+METRABS_KEY_SUB = np.sort(np.unique(METRABS_BONE.flatten()))
+METRABS_BONE_SUB = mk_bone_sub(METRABS_BONE, METRABS_KEY_SUB)
+
+
+# ---------------------------------------------------------------------------
+# Full bml_movi_87 skeleton (all 87 joints from MeTRAbs)
+# ---------------------------------------------------------------------------
+BML87_KEY = {
+    "backneck": 0, "upperback": 1, "clavicle": 2, "sternum": 3, "umbilicus": 4,
+    "lfronthead": 5, "lbackhead": 6, "lback": 7, "lshom": 8, "lupperarm": 9,
+    "lelbm": 10, "lforearm": 11, "lwrithumbside": 12, "lwripinkieside": 13,
+    "lfin": 14, "lasis": 15, "lpsis": 16, "lfrontthigh": 17, "lthigh": 18,
+    "lknem": 19, "lankm": 20, "lhee": 21, "lfifthmetatarsal": 22, "ltoe": 23,
+    "lcheek": 24, "lbreast": 25, "lelbinner": 26, "lwaist": 27, "lthumb": 28,
+    "lfrontinnerthigh": 29, "linnerknee": 30, "lshin": 31, "lfirstmetatarsal": 32,
+    "lfourthtoe": 33, "lscapula": 34, "lbum": 35,
+    "rfronthead": 36, "rbackhead": 37, "rback": 38, "rshom": 39, "rupperarm": 40,
+    "relbm": 41, "rforearm": 42, "rwrithumbside": 43, "rwripinkieside": 44,
+    "rfin": 45, "rasis": 46, "rpsis": 47, "rfrontthigh": 48, "rthigh": 49,
+    "rknem": 50, "rankm": 51, "rhee": 52, "rfifthmetatarsal": 53, "rtoe": 54,
+    "rcheek": 55, "rbreast": 56, "relbinner": 57, "rwaist": 58, "rthumb": 59,
+    "rfrontinnerthigh": 60, "rinnerknee": 61, "rshin": 62, "rfirstmetatarsal": 63,
+    "rfourthtoe": 64, "rscapula": 65, "rbum": 66,
+    "head": 67, "mhip": 68, "pelv": 69, "thor": 70,
+    "lank": 71, "lelb": 72, "lhip": 73, "lhan": 74, "lkne": 75,
+    "lsho": 76, "lwri": 77, "lfoo": 78,
+    "rank": 79, "relb": 80, "rhip": 81, "rhan": 82, "rkne": 83,
+    "rsho": 84, "rwri": 85, "rfoo": 86,
+}
+
+B = BML87_KEY  # shorthand
+
+BML87_BONE = np.array([
+    # === Official MeTRAbs edges (19) ===
+    [B["head"],  B["thor"]],
+    [B["mhip"],  B["pelv"]],
+    [B["mhip"],  B["lhip"]],
+    [B["mhip"],  B["rhip"]],
+    [B["pelv"],  B["thor"]],
+    [B["thor"],  B["lsho"]],
+    [B["thor"],  B["rsho"]],
+    [B["lank"],  B["lkne"]],
+    [B["lank"],  B["lfoo"]],
+    [B["lelb"],  B["lsho"]],
+    [B["lelb"],  B["lwri"]],
+    [B["lhip"],  B["lkne"]],
+    [B["lhan"],  B["lwri"]],
+    [B["rank"],  B["rkne"]],
+    [B["rank"],  B["rfoo"]],
+    [B["relb"],  B["rsho"]],
+    [B["relb"],  B["rwri"]],
+    [B["rhip"],  B["rkne"]],
+    [B["rhan"],  B["rwri"]],
+    # === Spine & torso detail ===
+    [B["thor"],  B["backneck"]],
+    [B["backneck"], B["head"]],
+    [B["thor"],  B["sternum"]],
+    [B["thor"],  B["clavicle"]],
+    [B["pelv"],  B["umbilicus"]],
+    [B["thor"],  B["upperback"]],
+    # === Head markers ===
+    [B["head"],  B["lfronthead"]],
+    [B["head"],  B["rfronthead"]],
+    [B["head"],  B["lbackhead"]],
+    [B["head"],  B["rbackhead"]],
+    [B["head"],  B["lcheek"]],
+    [B["head"],  B["rcheek"]],
+    # === Shoulder/scapula markers ===
+    [B["lsho"],  B["lshom"]],
+    [B["lsho"],  B["lscapula"]],
+    [B["rsho"],  B["rshom"]],
+    [B["rsho"],  B["rscapula"]],
+    [B["lsho"],  B["rsho"]],  # shoulder width
+    # === Arm detail ===
+    [B["lelb"],  B["lelbm"]],
+    [B["lelb"],  B["lelbinner"]],
+    [B["lwri"],  B["lwrithumbside"]],
+    [B["lwri"],  B["lwripinkieside"]],
+    [B["lhan"],  B["lfin"]],
+    [B["lhan"],  B["lthumb"]],
+    [B["relb"],  B["relbm"]],
+    [B["relb"],  B["relbinner"]],
+    [B["rwri"],  B["rwrithumbside"]],
+    [B["rwri"],  B["rwripinkieside"]],
+    [B["rhan"],  B["rfin"]],
+    [B["rhan"],  B["rthumb"]],
+    # === Upper arm ===
+    [B["lsho"],  B["lupperarm"]],
+    [B["lelb"],  B["lforearm"]],
+    [B["rsho"],  B["rupperarm"]],
+    [B["relb"],  B["rforearm"]],
+    # === Torso markers ===
+    [B["thor"],  B["lbreast"]],
+    [B["thor"],  B["rbreast"]],
+    [B["pelv"],  B["lback"]],
+    [B["pelv"],  B["rback"]],
+    [B["pelv"],  B["lwaist"]],
+    [B["pelv"],  B["rwaist"]],
+    [B["lhip"],  B["lasis"]],
+    [B["lhip"],  B["lpsis"]],
+    [B["lhip"],  B["lbum"]],
+    [B["rhip"],  B["rasis"]],
+    [B["rhip"],  B["rpsis"]],
+    [B["rhip"],  B["rbum"]],
+    [B["lhip"],  B["rhip"]],  # hip width
+    # === Thigh detail ===
+    [B["lhip"],  B["lfrontthigh"]],
+    [B["lhip"],  B["lfrontinnerthigh"]],
+    [B["lkne"],  B["lthigh"]],
+    [B["lkne"],  B["lknem"]],
+    [B["lkne"],  B["linnerknee"]],
+    [B["rhip"],  B["rfrontthigh"]],
+    [B["rhip"],  B["rfrontinnerthigh"]],
+    [B["rkne"],  B["rthigh"]],
+    [B["rkne"],  B["rknem"]],
+    [B["rkne"],  B["rinnerknee"]],
+    # === Shin & ankle detail ===
+    [B["lank"],  B["lankm"]],
+    [B["lank"],  B["lshin"]],
+    [B["rank"],  B["rankm"]],
+    [B["rank"],  B["rshin"]],
+    # === Foot detail ===
+    [B["lank"],  B["lhee"]],
+    [B["lhee"],  B["ltoe"]],
+    [B["lank"],  B["lfifthmetatarsal"]],
+    [B["lfoo"],  B["lfirstmetatarsal"]],
+    [B["lfoo"],  B["lfourthtoe"]],
+    [B["rank"],  B["rhee"]],
+    [B["rhee"],  B["rtoe"]],
+    [B["rank"],  B["rfifthmetatarsal"]],
+    [B["rfoo"],  B["rfirstmetatarsal"]],
+    [B["rfoo"],  B["rfourthtoe"]],
+], dtype=int)
+
+BML87_KEY_SUB = np.sort(np.unique(BML87_BONE.flatten()))
+BML87_BONE_SUB = mk_bone_sub(BML87_BONE, BML87_KEY_SUB)
+
+
+def get_bone_config(n_joints):
+    """Return (bone_array, key_sub) based on the detected number of joints."""
+    if n_joints == 87:
+        return BML87_BONE, BML87_KEY_SUB
+    if n_joints == 26:
+        return METRABS_BONE, METRABS_KEY_SUB
+    return OP_BONE, OP_KEY_SUB
 
 
 def z_test_w2c(R1, t1, R2, t2, n1, n2):
@@ -382,11 +609,16 @@ def load_eldersim_camera(filename):
     K = np.array(cameras["K"], dtype=np.float64)
     R_w2c = np.array(cameras["R_w2c"], dtype=np.float64)
     t_w2c = np.array(cameras["t_w2c"], dtype=np.float64)
+    # dist_coeffs is optional (backward compatible with old JSON files)
+    if "dist_coeffs" in cameras:
+        dist_coeffs = np.array(cameras["dist_coeffs"], dtype=np.float64)
+    else:
+        dist_coeffs = np.zeros((len(CAMID), 5), dtype=np.float64)
     assert len(CAMID) == len(K)
     assert len(CAMID) == len(R_w2c)
     assert len(CAMID) == len(t_w2c)
 
-    return CAMID, K, R_w2c, t_w2c
+    return CAMID, K, R_w2c, t_w2c, dist_coeffs
 
 
 def load_eldersim_skeleton_w(filename):
@@ -410,15 +642,16 @@ def load_poses_all(dirname, cameras, aid, pid, gid):
             os.path.join(dirname, f"A{aid:03d}_P{pid:03d}_G{gid:03d}_C{cid:03d}.json")
         )
         N = len(f)
+        n_joints = s.shape[1]  # detect from score array (25 or 26)
         f_all.append(f)
-        p_all.append(p.reshape((N, 25, -1)))  # to work both for 2D and 3D
+        p_all.append(p.reshape((N, n_joints, -1)))  # works for both 2D and 3D
         s_all.append(s)
 
     return np.array(f_all), np.array(p_all), np.array(s_all)
 
 
 def load_eldersim(dirname, gid, aid, pid, joint2d_dir="2d_joint"):
-    CAMID, K, R_w2c, t_w2c = load_eldersim_camera(
+    CAMID, K, R_w2c, t_w2c, _dist = load_eldersim_camera(
         os.path.join(dirname, f"cameras_G{gid:03d}.json")
     )
     p3d_w, frames = load_eldersim_skeleton_w(
@@ -439,8 +672,9 @@ def load_eldersim(dirname, gid, aid, pid, joint2d_dir="2d_joint"):
                 f"A{aid:03d}_P{pid:03d}_G{gid:03d}_C{cid:03d}.json",
             )
         )
+        n_joints_2d = s2d.shape[1]  # detect from score array
         f2d_all.append(f2d)
-        p2d_all.append(p2d.reshape((-1, 25, 2)))
+        p2d_all.append(p2d.reshape((-1, n_joints_2d, 2)))
         s2d_all.append(s2d)
 
         f3d, p3d, s3d = load_poses(
@@ -448,8 +682,9 @@ def load_eldersim(dirname, gid, aid, pid, joint2d_dir="2d_joint"):
                 dirname, "3d_joint", f"A{aid:03d}_P{pid:03d}_G{gid:03d}_C{cid:03d}.json"
             )
         )
+        n_joints_3d = s3d.shape[1]
         f3d_all.append(f3d)
-        p3d_all.append(p3d.reshape((-1, 25, 3)))
+        p3d_all.append(p3d.reshape((-1, n_joints_3d, 3)))
         s3d_all.append(s3d)
 
         # Use np.array_equal instead of np.alltrue to prevent deprecation issues

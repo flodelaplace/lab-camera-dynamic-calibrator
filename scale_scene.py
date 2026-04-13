@@ -36,22 +36,42 @@ sys.path.insert(0, os.path.abspath("./"))
 from util import load_poses
 from evaluate_calibration import export_to_toml
 
-# Keypoint indices in Halpe26
-HEAD_IDX = 17
-L_HEEL_IDX = 24
-R_HEEL_IDX = 25
-L_BIG_TOE_IDX = 20
-R_BIG_TOE_IDX = 21
-L_SMALL_TOE_IDX = 22
-R_SMALL_TOE_IDX = 23
+# Keypoint indices in Halpe26 (used with RTMPose)
+HALPE26_HEAD = 17
+HALPE26_L_HEEL = 24
+HALPE26_R_HEEL = 25
+HALPE26_L_BIG_TOE = 20
+HALPE26_R_BIG_TOE = 21
+HALPE26_L_SMALL_TOE = 22
+HALPE26_R_SMALL_TOE = 23
 
-def get_3d_keypoint(p2d_all, s2d_all, K, R_w2c, t_w2c, frame_idx, joint_idx):
+# Keypoint indices in Calib26 / MeTRAbs format
+CALIB26_HEAD = 0
+CALIB26_L_HEEL = 22
+CALIB26_R_HEEL = 23
+CALIB26_L_TOE = 24
+CALIB26_R_TOE = 25
+CALIB26_L_FOO = 20
+CALIB26_R_FOO = 21
+
+# Keypoint indices in bml_movi_87 (full MeTRAbs skeleton)
+BML87_HEAD = 67
+BML87_L_HEEL = 21
+BML87_R_HEEL = 52
+BML87_L_TOE = 23
+BML87_R_TOE = 54
+BML87_L_FOO = 78
+BML87_R_FOO = 86
+BML87_L_FIFTHMET = 22
+BML87_R_FIFTHMET = 53
+
+def get_3d_keypoint(p2d_all, s2d_all, K, R_w2c, t_w2c, frame_idx, joint_idx, conf_threshold=0.5):
     """Triangulates a single 3D keypoint for a specific frame."""
     C = p2d_all.shape[0]
     p2d_frame = p2d_all[:, frame_idx, joint_idx, :]
     s2d_frame = s2d_all[:, frame_idx, joint_idx]
 
-    vis_mask = s2d_frame > 0.5 # Use a confidence threshold
+    vis_mask = s2d_frame > conf_threshold # Use a confidence threshold
     if np.sum(vis_mask) < 2:
         return None
 
@@ -81,10 +101,48 @@ def main():
     parser.add_argument("--input_toml", default=None, help="Path to the input TOML file template")
     parser.add_argument("--export_toml", default=None, help="Path to save the final calibrated TOML file")
     parser.add_argument("--video_dir", default=None, help="Path to original videos (needed for TOML export)")
+    parser.add_argument("--conf_threshold", type=float, default=0.5, help="Confidence threshold for 2D keypoints")
+    parser.add_argument("--pose_engine", default="rtmpose", choices=["rtmpose", "metrabs"],
+                        help="Pose engine used: determines joint format for scaling")
     args = parser.parse_args()
 
-    # --- Load Original Calibration and Pose Data ---
-    halpe26_dir = os.path.join(args.prefix, args.subset, "2d_joint_halpe26")
+    # --- Select joint format based on pose engine ---
+    # Auto-detect: check if 2d_joint has 87 joints (full bml_movi_87)
+    _detect_dir = os.path.join(args.prefix, args.subset, "2d_joint")
+    _n_joints_detected = 0
+    if os.path.isdir(_detect_dir):
+        _sample = sorted(glob.glob(os.path.join(_detect_dir, "*.json")))
+        if _sample:
+            import json as _json
+            with open(_sample[0]) as _f:
+                _d = _json.load(_f)
+                if _d["data"]:
+                    _n_joints_detected = len(_d["data"][0]["skeleton"][0]["score"])
+
+    if args.pose_engine == "metrabs" and _n_joints_detected == 87:
+        joint_dir = os.path.join(args.prefix, args.subset, "2d_joint")
+        HEAD_IDX = BML87_HEAD
+        L_HEEL_IDX = BML87_L_HEEL
+        R_HEEL_IDX = BML87_R_HEEL
+        foot_kp_indices = [BML87_L_HEEL, BML87_R_HEEL, BML87_L_TOE, BML87_R_TOE,
+                           BML87_L_FOO, BML87_R_FOO, BML87_L_FIFTHMET, BML87_R_FIFTHMET]
+        print(f"  Using MeTRAbs bml_movi_87 joints for scaling ({_n_joints_detected} joints)")
+    elif args.pose_engine == "metrabs":
+        joint_dir = os.path.join(args.prefix, args.subset, "2d_joint")
+        HEAD_IDX = CALIB26_HEAD
+        L_HEEL_IDX = CALIB26_L_HEEL
+        R_HEEL_IDX = CALIB26_R_HEEL
+        foot_kp_indices = [CALIB26_L_HEEL, CALIB26_R_HEEL, CALIB26_L_TOE, CALIB26_R_TOE,
+                           CALIB26_L_FOO, CALIB26_R_FOO]
+        print(f"  Using MeTRAbs calib26 joints for scaling ({_n_joints_detected} joints)")
+    else:
+        joint_dir = os.path.join(args.prefix, args.subset, "2d_joint_halpe26")
+        HEAD_IDX = HALPE26_HEAD
+        L_HEEL_IDX = HALPE26_L_HEEL
+        R_HEEL_IDX = HALPE26_R_HEEL
+        foot_kp_indices = [HALPE26_L_HEEL, HALPE26_R_HEEL, HALPE26_L_BIG_TOE,
+                           HALPE26_R_BIG_TOE, HALPE26_L_SMALL_TOE, HALPE26_R_SMALL_TOE]
+    halpe26_dir = joint_dir  # used below for loading poses
     calib_json_path = os.path.join(args.prefix, "results", f"{args.calib}.json")
 
     with open(calib_json_path, 'r') as f:
@@ -122,15 +180,14 @@ def main():
 
     # --- Triangulate Foot and Head Keypoints ---
     print(f"Triangulating keypoints for frame {args.frame_idx}...")
-    foot_kps_indices = [L_HEEL_IDX, R_HEEL_IDX, L_BIG_TOE_IDX, R_BIG_TOE_IDX, L_SMALL_TOE_IDX, R_SMALL_TOE_IDX]
-    foot_points_3d = [get_3d_keypoint(p2d_all, s2d_all, K, R_w2c_orig, t_w2c_orig, args.frame_idx, idx) for idx in foot_kps_indices]
+    foot_points_3d = [get_3d_keypoint(p2d_all, s2d_all, K, R_w2c_orig, t_w2c_orig, args.frame_idx, idx, args.conf_threshold) for idx in foot_kp_indices]
     foot_points_3d = [p for p in foot_points_3d if p is not None]
 
     if len(foot_points_3d) < 3:
         print(f"ERROR: Not enough foot keypoints ({len(foot_points_3d)}) to define a plane. Try a different frame.", file=sys.stderr)
         sys.exit(1)
 
-    head_3d = get_3d_keypoint(p2d_all, s2d_all, K, R_w2c_orig, t_w2c_orig, args.frame_idx, HEAD_IDX)
+    head_3d = get_3d_keypoint(p2d_all, s2d_all, K, R_w2c_orig, t_w2c_orig, args.frame_idx, HEAD_IDX, args.conf_threshold)
     if head_3d is None:
         print("ERROR: Could not triangulate head. Cannot calculate scale.", file=sys.stderr)
         sys.exit(1)
@@ -144,8 +201,8 @@ def main():
     y_axis = y_axis_temp / np.linalg.norm(y_axis_temp)
 
     # X-axis can be defined by the vector between heels
-    l_heel_3d = get_3d_keypoint(p2d_all, s2d_all, K, R_w2c_orig, t_w2c_orig, args.frame_idx, L_HEEL_IDX)
-    r_heel_3d = get_3d_keypoint(p2d_all, s2d_all, K, R_w2c_orig, t_w2c_orig, args.frame_idx, R_HEEL_IDX)
+    l_heel_3d = get_3d_keypoint(p2d_all, s2d_all, K, R_w2c_orig, t_w2c_orig, args.frame_idx, L_HEEL_IDX, args.conf_threshold)
+    r_heel_3d = get_3d_keypoint(p2d_all, s2d_all, K, R_w2c_orig, t_w2c_orig, args.frame_idx, R_HEEL_IDX, args.conf_threshold)
     
     if l_heel_3d is not None and r_heel_3d is not None:
         # X-axis should point to the right (Left Heel -> Right Heel to fix mirror effect)

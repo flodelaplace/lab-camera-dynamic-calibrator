@@ -83,13 +83,13 @@ def main():
     print(f"Recherche des sections pour les caméras: {args.cam_names}")
 
     # ---- Extraire K, R, t pour chaque caméra --------------------------------
-    cam_ids, K_list, R_list, t_list = [], [], [], []
+    cam_ids, K_list, R_list, t_list, dist_list = [], [], [], [], []
 
     for i, cam_name in enumerate(args.cam_names, start=1):
         if cam_name not in data:
             print(f"ERROR: La section '[{cam_name}]' n'a pas été trouvée dans le fichier TOML {args.toml}", file=sys.stderr)
             sys.exit(1)
-        
+
         sec = data[cam_name]
         cam_ids.append(i)
 
@@ -103,6 +103,9 @@ def main():
         t = np.array(sec["translation"], dtype=np.float64)
         t_list.append(t)
 
+        dist = np.array(sec.get("distortions", [0, 0, 0, 0, 0]), dtype=np.float64)
+        dist_list.append(dist)
+
         print(f"  -> Trouvé '{cam_name}' (Cam ID {i})")
 
     # ---- Sauvegarder cameras_G{gid}.json ------------------------------------
@@ -114,6 +117,7 @@ def main():
         "K": [k.tolist() for k in K_list],
         "R_w2c": [R.tolist() for R in R_list],
         "t_w2c": [t.tolist() for t in t_list],
+        "dist_coeffs": [d.tolist() for d in dist_list],
     }
     with open(cam_path, "w") as f:
         json.dump(out, f, indent=2, ensure_ascii=True)

@@ -38,6 +38,11 @@ import cv2
 import numpy as np
 from tqdm import tqdm
 
+try:
+    from rtmlib.visualization.draw import draw_skeleton
+except ImportError:
+    draw_skeleton = None
+
 # ---------------------------------------------------------------------------
 # Halpe26 keypoint indices (rtmlib BodyWithFeet output)
 # ---------------------------------------------------------------------------
@@ -131,13 +136,14 @@ def halpe26_to_op25(kp_halpe, sc_halpe):
     return kp_op, score_op
 
 
-def process_video(video_path: str, body_model, output_op25_json: str, output_halpe26_json: str, start_frame: int = None, end_frame: int = None):
+def process_video(video_path: str, body_model, output_op25_json: str, output_halpe26_json: str, start_frame: int = None, end_frame: int = None, save_video_path: str = None):
     """Run RTMPose on a selected range of frames and save a 2d_joint JSON."""
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         raise FileNotFoundError(f"Cannot open video: {video_path}")
     width  = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    fps = cap.get(cv2.CAP_PROP_FPS)
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     print(f"  Video: {os.path.basename(video_path)}  ({width}x{height}, {total_frames} frames)")
     op25_data = []
@@ -151,6 +157,12 @@ def process_video(video_path: str, body_model, output_op25_json: str, output_hal
         return width, height
     n_frames = ef - sf + 1
     cap.set(cv2.CAP_PROP_POS_FRAMES, sf)
+
+    writer = None
+    if save_video_path:
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        writer = cv2.VideoWriter(save_video_path, fourcc, fps, (width, height))
+
     with tqdm(total=n_frames, desc=f"  Processing frames {sf}-{ef}") as pbar:
         for i in range(n_frames):
             ret, frame = cap.read()
@@ -186,10 +198,25 @@ def process_video(video_path: str, body_model, output_op25_json: str, output_hal
                         else:
                             bboxes_all = np.array([0,0,0,0])
                 kp_halpe, sc_halpe = get_best_person(keypoints_all, scores_all, bboxes_all)
+
+            if writer is not None:
+                img_show = frame.copy()
+                if keypoints_all is not None and len(keypoints_all) > 0:
+                    if draw_skeleton is not None:
+                        img_show = draw_skeleton(img_show, keypoints_all, scores_all, kpt_thr=0.3)
+                    else:
+                        # Fallback (au cas où draw_skeleton n'est pas dispo): points verts pour la meilleure personne
+                        for kp, sc in zip(kp_halpe, sc_halpe):
+                            if sc > 0.3:
+                                cv2.circle(img_show, (int(kp[0]), int(kp[1])), 4, (0, 255, 0), -1)
+                writer.write(img_show)
+
             kp_op25, sc_op25 = halpe26_to_op25(kp_halpe, sc_halpe)
             op25_data.append({"frame_index": frame_idx, "skeleton": [{"pose": kp_op25.flatten().tolist(), "score": sc_op25.tolist()}]})
             halpe26_data.append({"frame_index": frame_idx, "skeleton": [{"pose": kp_halpe.flatten().tolist(), "score": sc_halpe.tolist()}]})
             pbar.update(1)
+    if writer is not None:
+        writer.release()
     cap.release()
     with open(output_op25_json, "w") as f:
         json.dump({"data": op25_data}, f, indent=2, ensure_ascii=True)
@@ -227,6 +254,8 @@ def main():
                         help="Start frame index for pose extraction (default: 0)")
     parser.add_argument("--end_frame", type=int, default=None,
                         help="End frame index for pose extraction (default: last frame)")
+    parser.add_argument("--save_video", action="store_true",
+                        help="Generate and save an overlay video of 2D pose estimation.")
     args = parser.parse_args()
 
     # ---- collect & sort video files ----------------------------------------
@@ -265,6 +294,10 @@ def main():
     os.makedirs(out_op25_dir, exist_ok=True)
     os.makedirs(out_halpe26_dir, exist_ok=True)
 
+    out_overlay_dir = os.path.join(args.output_dir, args.subset_name, "overlay_videos")
+    if args.save_video:
+        os.makedirs(out_overlay_dir, exist_ok=True)
+
     widths, heights = [], []
     for cam_idx, video_path in enumerate(video_files, start=1):
         cid = cam_idx
@@ -282,9 +315,13 @@ def main():
             continue
 
         print(f"\n[Camera {cid}]")
+        save_video_path = None
+        if args.save_video:
+            save_video_path = os.path.join(out_overlay_dir, f"overlay_{os.path.basename(video_path)}")
+
         w, h = process_video(
             video_path, body_model, output_op25_json, output_halpe26_json,
-            start_frame=args.start_frame, end_frame=args.end_frame
+            start_frame=args.start_frame, end_frame=args.end_frame, save_video_path=save_video_path
         )
         widths.append(w)
         heights.append(h)
@@ -303,6 +340,8 @@ def main():
     print("2D pose extraction complete!")
     print(f"Output: {out_op25_dir}")
     print(f"Also saved raw Halpe26 data to: {out_halpe26_dir}")
+    if args.save_video:
+        print(f"Saved overlay videos to: {out_overlay_dir}")
     print(f"Cameras: {cam_ids_str}  |  Resolution: {width}x{height}")
     print("="*60)
 

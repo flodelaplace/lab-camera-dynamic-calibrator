@@ -51,13 +51,90 @@ OPENPOSE_SKELETON = (
     (11, 22), (11, 24), (22, 23),
     (14, 19), (14, 21), (19, 20),
 )
+OP_NAMES = [
+    "Nose", "Neck", "RShoulder", "RElbow", "RWrist",
+    "LShoulder", "LElbow", "LWrist", "MidHip", "RHip",
+    "RKnee", "RAnkle", "LHip", "LKnee", "LAnkle",
+    "REye", "LEye", "REar", "LEar", "LBigToe",
+    "LSmallToe", "LHeel", "RBigToe", "RSmallToe", "RHeel"
+]
+
+# ── squelette MeTRAbs calib-26 ────────────────────────────────────────────────
+METRABS_SKELETON = (
+    # Spine
+    (5, 4), (4, 2), (2, 1), (1, 0),
+    # Torso
+    (3, 2), (6, 7), (14, 15),
+    # Shoulders
+    (2, 6), (2, 7),
+    # Hips
+    (4, 14), (4, 15),
+    # Left arm
+    (6, 8), (8, 10), (10, 12),
+    # Right arm
+    (7, 9), (9, 11), (11, 13),
+    # Left leg
+    (14, 16), (16, 18), (18, 20),
+    # Right leg
+    (15, 17), (17, 19), (19, 21),
+    # Feet
+    (18, 22), (22, 24),
+    (19, 23), (23, 25),
+)
+METRABS_NAMES = [
+    "head", "backneck", "thor", "sternum", "pelv", "mhip",
+    "lsho", "rsho", "lelb", "relb", "lwri", "rwri",
+    "lhan", "rhan", "lhip", "rhip", "lkne", "rkne",
+    "lank", "rank", "lfoo", "rfoo", "lhee", "rhee", "ltoe", "rtoe",
+]
+
+
+def export_to_trc(X3d_world, output_path, fps=30.0):
+    """
+    Exporte les coordonnées 3D au format .trc (pour OpenSim / Mokka)
+    """
+    import os
+    N, J, _ = X3d_world.shape
+    if J == 87:
+        from util import BML87_KEY
+        joint_names = [k for k, v in sorted(BML87_KEY.items(), key=lambda x: x[1])]
+    elif J == 26:
+        joint_names = METRABS_NAMES
+    else:
+        joint_names = OP_NAMES[:J]
+    for i in range(len(joint_names), J):
+        joint_names.append(f"Joint_{i}")
+
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    with open(output_path, 'w') as f:
+        f.write(f"PathFileType\t4\t(X/Y/Z)\t{os.path.basename(output_path)}\n")
+        f.write("DataRate\tCameraRate\tNumFrames\tNumMarkers\tUnits\tOrigDataRate\tOrigDataStartFrame\tOrigNumFrames\n")
+        f.write(f"{fps:.2f}\t{fps:.2f}\t{N}\t{J}\tm\t{fps:.2f}\t1\t{N}\n")
+        f.write("Frame#\tTime\t")
+        for name in joint_names:
+            f.write(f"{name}\t\t\t")
+        f.write("\n\t\t")
+        for i in range(1, J + 1):
+            f.write(f"X{i}\tY{i}\tZ{i}\t")
+        f.write("\n\n")
+        for n in range(N):
+            time = n / fps
+            f.write(f"{n + 1}\t{time:.5f}\t")
+            for j in range(J):
+                pt = X3d_world[n, j]
+                if np.isnan(pt).any():
+                    f.write("\t\t\t")
+                else:
+                    f.write(f"{pt[0]:.5f}\t{pt[1]:.5f}\t{pt[2]:.5f}\t")
+            f.write("\n")
+    print(f"Saved TRC file to: {output_path}")
 
 BONE_COLOR  = "#f94e3e"
 CAM_COLOR   = ["#2196F3", "#4CAF50", "#FF9800", "#9C27B0",
                "#00BCD4", "#FFEB3B", "#795548", "#607D8B"]
 
 
-def triangulate_skeleton(p2d_all, s2d_all, K, R_w2c, t_w2c):
+def triangulate_skeleton(p2d_all, s2d_all, K, R_w2c, t_w2c, conf_threshold=0.5):
     """
     Triangule les joints 2D de toutes les caméras pour obtenir un squelette
     dans le repère monde. Utilise toutes les caméras visibles via DLT.
@@ -72,7 +149,7 @@ def triangulate_skeleton(p2d_all, s2d_all, K, R_w2c, t_w2c):
 
     for n in range(N):
         for j in range(J):
-            vis = s2d_all[:, n, j] > 0.5
+            vis = s2d_all[:, n, j] > conf_threshold
             if np.sum(vis) < 2:
                 continue
             
@@ -206,7 +283,12 @@ def make_animation(X3d_world, R_w2c, t_w2c, output_path, fps=15, step=1):
         valid_mask = ~np.isnan(pts_plot).any(axis=1)
         ax.scatter(pts_plot[valid_mask, 0], pts_plot[valid_mask, 1], pts_plot[valid_mask, 2],
                    c="white", s=30, zorder=5, depthshade=False) # Points plus gros
-        for j0, j1 in OPENPOSE_SKELETON:
+        skeleton = (METRABS_SKELETON if X3d_world.shape[1] == 26
+                    else OPENPOSE_SKELETON)
+        if X3d_world.shape[1] == 87:
+            from util import BML87_BONE
+            skeleton = [(int(b[0]), int(b[1])) for b in BML87_BONE]
+        for j0, j1 in skeleton:
             p0, p1 = pts_plot[j0], pts_plot[j1]
             if not (np.isnan(p0).any() or np.isnan(p1).any()):
                 line = art3d.Line3D([p0[0], p1[0]], [p0[1], p1[1]], [p0[2], p1[2]],
@@ -250,8 +332,14 @@ def main():
                         help="Output path .gif or .mp4 (default: results/camera/visu_3d.gif)")
     parser.add_argument("--fps",     type=int, default=15,
                         help="Animation FPS (default: 15)")
-    parser.add_argument("--step",    type=int, default=1,
-                        help="Render 1 frame every N (default: 1, all frames)")
+    parser.add_argument("--step",    type=int, default=0,
+                        help="Render 1 frame every N (default: 0 = auto-cap GIF to ~150 frames)")
+    parser.add_argument("--max_frames", type=int, default=150,
+                        help="Max GIF frames when --step=0 (default: 150)")
+    parser.add_argument("--conf_threshold", type=float, default=0.5,
+                         help="Confidence threshold for 2D keypoints")
+    parser.add_argument("--export_trc", default=None,
+                         help="Export the triangulated 3D skeleton to a .trc file path")
     args = parser.parse_args()
 
     subset_dir = os.path.join(args.prefix, args.subset)
@@ -280,7 +368,7 @@ def main():
     print(f"Calibration: {calib_json}")
     print(f"Cameras    : {camera_ids}")
 
-    CAMID, K, R_w2c, t_w2c = load_eldersim_camera(calib_json)
+    CAMID, K, R_w2c, t_w2c, _dist = load_eldersim_camera(calib_json)
     R_w2c = np.array(R_w2c)
     t_w2c = np.array(t_w2c)
     K      = np.array(K)
@@ -304,13 +392,24 @@ def main():
     print(f"Frames     : {N} (truncated to shortest video)")
 
     print("Triangulating 3D skeleton in world frame...")
-    X3d_world = triangulate_skeleton(p2d_all, s2d_all, K, R_w2c, t_w2c)
+    X3d_world = triangulate_skeleton(p2d_all, s2d_all, K, R_w2c, t_w2c, args.conf_threshold)
     print(f"X3d_world shape: {X3d_world.shape}")
+
+    if args.export_trc:
+        dataset_fps = config.get(args.dataset, {}).get("frame_rate", 30.0)
+        export_to_trc(X3d_world, args.export_trc, fps=dataset_fps)
+
+    # Auto-step: cap GIF to ~max_frames for fast rendering
+    step = args.step
+    if step == 0:
+        step = max(1, N // args.max_frames)
+        if step > 1:
+            print(f"Auto-step: rendering 1/{step} frames ({N // step}/{N} total)")
 
     make_animation(X3d_world, R_w2c, t_w2c,
                    output_path=args.output,
                    fps=args.fps,
-                   step=args.step)
+                   step=step)
 
 
 if __name__ == "__main__":
