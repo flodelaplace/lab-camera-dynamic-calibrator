@@ -159,8 +159,11 @@ with open('${FIRST_FILE}') as f:
     fi
 
     if [ "$POSES_EXIST" = false ]; then
-        # Note: 2>... filter drops the harmless libtinfo.so.6 version warning
-        # emitted by the bash subshell that conda spawns when activating the env.
+        # NB: we do NOT filter stderr here — tqdm writes live progress bars to
+        # stderr using \r (carriage return). Piping stderr through grep/sed
+        # buffers everything until newline, breaking the live update. The
+        # harmless "libtinfo.so.6: no version information available" warning
+        # from the bash subshell that conda spawns is acceptable in exchange.
         PYTHONUNBUFFERED=1 conda run --live-stream -n metrabs_opensim python -u "${REPO_ROOT}/pose/metrabs_inference.py" \
             --video_dir "${VIDEO_DIR}" \
             --calib_toml "${CALIB_TOML}" \
@@ -169,8 +172,7 @@ with open('${FIRST_FILE}') as f:
             --subset_name "${SUBSET}" \
             --batch_size 8 \
             $( [ -n "${START_FRAME}" ] && echo --start_frame "${START_FRAME}" ) \
-            $( [ -n "${END_FRAME}" ] && echo --end_frame "${END_FRAME}" ) \
-            2> >(grep -v 'libtinfo\.so\.6' >&2)
+            $( [ -n "${END_FRAME}" ] && echo --end_frame "${END_FRAME}" )
     fi
 else
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
