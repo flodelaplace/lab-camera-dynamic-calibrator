@@ -9,7 +9,7 @@ Two pose estimation architectures are supported, with fundamentally different ap
 
 In short, MeTRAbs collapses the 2D detection + 3D lifting into a **single forward pass** that outputs metric-scale 3D, while the RTMPose path requires two separate models and produces relative-scale 3D that must be rescaled during calibration.
 
-![Overview camera extrinsics](img/Graphical_abstract_lab_camera_dynamic_calibrator.png)
+![Overview camera extrinsics](img/Graphical_abstract_lab_camera_dynamic_calibrator_metrabs.png)
 
 ---
 
