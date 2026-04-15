@@ -363,24 +363,41 @@ if [ -n "$PERSON_HEIGHT" ] && [ -n "$REF_FRAME" ] && [ -n "$BEST_CALIB" ]; then
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo "[7/7] Scaling, Orientation and Final Visualization..."
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    
-    # --- Reference frame mapping ---
+
+    # --- Reference frame mapping + validation ---
+    # --ref_frame expects an ABSOLUTE video frame number. If --start_frame was
+    # given, remap it to the index within the cropped array (0 = start_frame).
+    SKIP_SCALING=false
     MAPPED_REF_FRAME=$REF_FRAME
     if [ -n "$START_FRAME" ]; then
-        MAPPED_REF_FRAME=$((REF_FRAME - START_FRAME))
-        echo "  -> Reference frame re-mapped from ${REF_FRAME} to index ${MAPPED_REF_FRAME} to match cropped data."
+        if [ ${REF_FRAME} -lt ${START_FRAME} ] || \
+           { [ -n "${END_FRAME}" ] && [ ${REF_FRAME} -gt ${END_FRAME} ]; }; then
+            echo ""
+            echo "⚠ ERROR: --ref_frame ${REF_FRAME} is outside the calibration range"
+            echo "         [--start_frame ${START_FRAME}, --end_frame ${END_FRAME:-<end>}]."
+            echo "         --ref_frame expects an ABSOLUTE video frame number that lies"
+            echo "         within the cropped range (pick a frame where the subject is"
+            echo "         standing straight, between start_frame and end_frame)."
+            echo "         Scaling step skipped — linear + BA calibrations are already saved."
+            SKIP_SCALING=true
+        else
+            MAPPED_REF_FRAME=$((REF_FRAME - START_FRAME))
+            echo "  -> Reference frame re-mapped from ${REF_FRAME} to index ${MAPPED_REF_FRAME} to match cropped data."
+        fi
     fi
 
-    python3 "${REPO_ROOT}/postprocessing/scale_scene.py" \
-        --prefix "${OUTPUT_DIR}" \
-        --calib "${BEST_CALIB}" \
-        --height ${PERSON_HEIGHT} \
-        --frame_idx ${MAPPED_REF_FRAME} \
-        --input_toml "${CALIB_TOML}" \
-        --export_toml "${FINAL_TOML_PATH}" \
-        --video_dir "${VIDEO_DIR}" \
-        --conf_threshold ${CONF_THRESHOLD} \
-        --pose_engine ${POSE_ENGINE}
+    if [ "$SKIP_SCALING" = false ]; then
+        python3 "${REPO_ROOT}/postprocessing/scale_scene.py" \
+            --prefix "${OUTPUT_DIR}" \
+            --calib "${BEST_CALIB}" \
+            --height ${PERSON_HEIGHT} \
+            --frame_idx ${MAPPED_REF_FRAME} \
+            --input_toml "${CALIB_TOML}" \
+            --export_toml "${FINAL_TOML_PATH}" \
+            --video_dir "${VIDEO_DIR}" \
+            --conf_threshold ${CONF_THRESHOLD} \
+            --pose_engine ${POSE_ENGINE}
+    fi
 
     FINAL_CALIB_NAME="${BEST_CALIB}_oriented_scaled"
     if [ -f "${OUTPUT_DIR}/results/${FINAL_CALIB_NAME}.json" ]; then
