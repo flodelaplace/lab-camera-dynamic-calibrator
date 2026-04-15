@@ -22,8 +22,8 @@ The pipeline processes synchronized multi-camera videos through a 7-step pipelin
 | **1. Pose Extraction** | `metrabs_inference.py` or `rtmlib_inference.py` | Detect 2D keypoints (+ direct metric 3D with MeTRAbs) in all camera views |
 | **2. Intrinsics Loading** | `create_cameras_from_toml.py` | Parse camera matrices & distortion from a Pose2Sim-compatible TOML |
 | **3. Configuration** | *(inline in calibrate.sh)* | Auto-detect number of cameras, joints, frame count; write `config.yaml` |
-| **4. 3D Lifting** | `inference.sh` / `inference.py` | Lift 2D→3D with VideoPose3D *(skipped when using MeTRAbs — 3D is already available)* |
-| **5. Calibration** | `calib_linear.sh` / `calib_linear.py` → `ba.sh` / `ba.py` | Linear calibration (with Procrustes init for MeTRAbs) + Bundle Adjustment |
+| **4. 3D Lifting** | `pose/inference.py` | Lift 2D→3D with VideoPose3D *(skipped when using MeTRAbs — 3D is already available)* |
+| **5. Calibration** | `scripts/run_calib_linear.py` → `calibration/calib_linear.py` → `scripts/run_ba.py` → `calibration/ba.py` | Chunked linear calibration (with Procrustes init for MeTRAbs) + Bundle Adjustment |
 | **6. Evaluation** | `evaluate_calibration.py` | Compute Mean Reprojection Error (MRE) per camera + visualizations |
 | **7. Scaling** | `scale_scene.py` | Orient scene (gravity-aligned) and scale to metric units using person height |
 
@@ -283,7 +283,7 @@ rm -rf output/my_session/noise_1_0/2d_joint output/my_session/noise_1_0/3d_joint
 
 ### Linear Calibration
 
-**Linear calibration** (`calib_linear.py` + `calib_linear.sh`) computes initial extrinsic parameters. The approach differs significantly depending on the pose engine:
+**Linear calibration** (`calibration/calib_linear.py` orchestrated by `scripts/run_calib_linear.py`) computes initial extrinsic parameters. The approach differs significantly depending on the pose engine:
 
 **With MeTRAbs — Procrustes alignment:**
 Since MeTRAbs gives a metric 3D skeleton per camera, we can directly align skeletons between cameras using [Procrustes analysis](https://en.wikipedia.org/wiki/Procrustes_analysis) (Umeyama method). Camera 0 defines the world frame; for each other camera, the algorithm finds R, t, s that align its 3D skeleton to camera 0's. This produces a strong initialization because the per-camera 3D is already in metric scale — the Procrustes residual is typically a few mm. Triggered automatically when 26 joints are detected.
@@ -291,7 +291,7 @@ Since MeTRAbs gives a metric 3D skeleton per camera, we can directly align skele
 **With RTMPose — Collinearity constraints:**
 Uses bone orientation collinearity and coplanarity constraints from 2D projections (original method from the paper). This requires solving a larger linear system and doesn't benefit from metric 3D data, so the initial MRE is much higher.
 
-**Chunk-based processing** (`calib_linear.sh`):
+**Chunk-based processing** (`scripts/run_calib_linear.py`):
 - Data is split into chunks of **1000 frames**
 - Each chunk is independently calibrated (with its own visibility filter and Procrustes/linear solve)
 - All chunks are evaluated by MRE using `evaluate_calibration.py`
@@ -315,7 +315,7 @@ Key BA features:
 - **Live convergence plot**: a PNG is saved every 10s showing the cost reduction curve with log-scale Y axis.
 - **2-pass optimization**: after the first pass, frames with per-frame reprojection error > **2x median** are removed as outliers, then a second pass runs on the cleaned data.
 - **Convergence**: uses `ftol=xtol=gtol=1e-7` with dynamic `max_nfev` scaled by problem size (60k–80k evaluations).
-- **OOM auto-retry** (`ba.sh`): if BA fails (e.g., out of memory), the script automatically retries with `frame_skip += 5`, up to a maximum of 60, reducing the number of frames until BA fits in memory.
+- **OOM auto-retry** (`scripts/run_ba.py`): if BA fails (e.g., out of memory), the runner automatically retries with `frame_skip += 5`, up to a maximum of 60, reducing the number of frames until BA fits in memory.
 
 ### MeTRAbs Quality Filtering and Processing
 
@@ -407,12 +407,11 @@ lab-camera-dynamic-calibrator/
 │   ├── filtering.py          # Visibility / orientation helpers (linear calib)
 │   └── gpu.py                # GPU selection helper
 │
-├── scripts/                  # Bash orchestration (entry points)
-│   ├── calibrate.sh          # Main pipeline orchestrator
-│   ├── calib_linear.sh       # Chunked linear calibration + best-chunk selection
-│   ├── ba.sh                 # Bundle Adjustment runner with OOM auto-retry
-│   ├── inference.sh          # VideoPose3D 3D lifting wrapper
-│   └── setup_models.sh       # VideoPose3D model download
+├── scripts/                  # Pipeline orchestration (entry points)
+│   ├── calibrate.sh          # Main bash orchestrator (handles conda env switching)
+│   ├── run_calib_linear.py   # Chunked linear calibration + best-chunk selection
+│   ├── run_ba.py             # Bundle Adjustment runner with OOM auto-retry
+│   └── setup_models.sh       # VideoPose3D model download (wget + git)
 │
 ├── pose/                     # 2D detection and 3D lifting
 │   ├── metrabs_inference.py  # MeTRAbs pose extraction (bml_movi_87 → calib-26)
@@ -461,7 +460,7 @@ lab-camera-dynamic-calibrator/
 | BA makes MRE worse | Regularization too strong | Auto-balanced lambda should handle this. If not, check if `objfun_multiview3d` is disabled. |
 | `No valid orientations` | Too few visible frames | Lower `--conf_threshold` or use a different frame range where person is more visible. |
 | MeTRAbs import error | Wrong conda env | MeTRAbs runs in `metrabs_opensim` env; `calibrate.sh` handles this via `conda run -n metrabs_opensim`. |
-| OOM during BA | Too many frames | `ba.sh` auto-retries with `frame_skip += 5` (up to max 60) to reduce memory usage. |
+| OOM during BA | Too many frames | `run_ba.py` auto-retries with `frame_skip += 5` (up to max 60) to reduce memory usage. |
 | Poses not re-extracted | Cache hit | Delete `output/*/noise_1_0/2d_joint` and `3d_joint` to force re-extraction. |
 | Same intrinsics work better than individual ones | Poor per-camera calibration | If cameras are the same model, try shared intrinsics as baseline. |
 

@@ -76,13 +76,18 @@ python tools/create_cameras_from_toml.py \
 
 3. **Lift to 3D Keypoints (VideoPose3D)**
 ```bash
-bash scripts/inference.sh output/demo_calibration 1 1 1 raw_rtm pretrained_h36m_detectron_coco.bin Custom
+python pose/inference.py \
+    --prefix output/demo_calibration \
+    --aid 1 --pid 1 --gid 1 \
+    --target raw_rtm \
+    --dataset Custom \
+    --model pretrained_h36m_detectron_coco.bin
 ```
 
 4. **Calibrate Camera Extrinsics**
 ```bash
-bash scripts/calib_linear.sh output/demo_calibration 1 1 1 raw_rtm 10 Custom
-bash scripts/ba.sh output/demo_calibration 1 1 1 10 1. 100000. linear_1_0 Custom false true
+python scripts/run_calib_linear.py output/demo_calibration 1 1 1 raw_rtm 10 Custom
+python scripts/run_ba.py output/demo_calibration 1 1 1 10 1. 100000. linear_1_0 Custom false true
 ```
 
 5. **Scale and Align to True World Coordinates**

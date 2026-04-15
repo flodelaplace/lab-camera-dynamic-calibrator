@@ -298,7 +298,13 @@ else
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo "[4/7] Lifting 2D -> 3D with VideoPose3D..."
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    bash "${SCRIPT_DIR}/inference.sh" "${OUTPUT_DIR}" ${AID} ${PID} ${GID} ${SUBSET} ${MODEL} ${DATASET} ${DEVICE}
+    python3 "${REPO_ROOT}/pose/inference.py" \
+        --prefix "${OUTPUT_DIR}" \
+        --aid ${AID} --pid ${PID} --gid ${GID} \
+        --target ${SUBSET} \
+        --dataset ${DATASET} \
+        --model ${MODEL} \
+        --device ${DEVICE}
 fi
 
 # --- Step 5: Extrinsic calibration ------------------------------------------
@@ -309,17 +315,17 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo "  → Running linear calibration by chunks..."
 
 # Data are already cropped, just calibrate on all locally available frames (index 0 to N-1)
-bash "${SCRIPT_DIR}/calib_linear.sh" --conf_threshold ${CONF_THRESHOLD} "${OUTPUT_DIR}" ${AID} ${PID} ${GID} ${SUBSET} ${FRAME_SKIP} ${DATASET}
+python3 "${SCRIPT_DIR}/run_calib_linear.py" --conf_threshold ${CONF_THRESHOLD} "${OUTPUT_DIR}" ${AID} ${PID} ${GID} ${SUBSET} ${FRAME_SKIP} ${DATASET}
 
 # Verify linear calibration result exists
 FINAL_LINEAR_JSON="${OUTPUT_DIR}/results/linear_1_0.json"
 if [ ! -f "${FINAL_LINEAR_JSON}" ]; then
     echo "ERROR: Linear calibration result not found: ${FINAL_LINEAR_JSON}"
-    echo "Aborting bundle adjustment. Please check calib_linear.sh output and logs."
+    echo "Aborting bundle adjustment. Please check run_calib_linear.py output and logs."
     exit 1
 fi
 echo "  → Bundle Adjustment (linear)..."
-bash "${SCRIPT_DIR}/ba.sh" "${OUTPUT_DIR}" ${AID} ${PID} ${GID} ${FRAME_SKIP} ${LAMBDA1} ${LAMBDA2} linear_1_0 ${DATASET} false true ${CONF_THRESHOLD}
+python3 "${SCRIPT_DIR}/run_ba.py" "${OUTPUT_DIR}" ${AID} ${PID} ${GID} ${FRAME_SKIP} ${LAMBDA1} ${LAMBDA2} linear_1_0 ${DATASET} false true ${CONF_THRESHOLD}
 
 # --- Step 6: Evaluation and Visualization ---------------------------------------
 echo ""
