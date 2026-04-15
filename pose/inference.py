@@ -10,9 +10,9 @@ if vp3d_path not in sys.path:
     sys.path.append(vp3d_path)
 
 import argument
-from util import load_poses, op_to_coco, COCO_KEY, H36M17_KEY, select_gpu
+from core import load_poses, op_to_coco, COCO_KEY, H36M17_KEY, select_gpu
 import numpy as np
-from util import OP_KEY
+from core import OP_KEY
 import matplotlib.pyplot as plt
 import torch
 import yaml, json

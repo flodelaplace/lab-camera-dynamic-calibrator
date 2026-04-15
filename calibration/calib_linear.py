@@ -1,6 +1,6 @@
 #%%
 import os, sys
-# Add repo root to import path so util.py / argument.py at root remain importable
+# Add repo root to import path so the core/ package and argument.py remain importable
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
@@ -13,8 +13,8 @@ import scipy as sp
 
 # from numba import jit
 from argument import parse_args
-from util import *
-from util import get_bone_config
+from core import *
+from core import get_bone_config
 import pycalib
 
 # module_path = os.path.abspath(os.path.join('./pycalib/'))

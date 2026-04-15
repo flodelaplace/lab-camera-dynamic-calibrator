@@ -38,7 +38,7 @@ import cameralib
 # ---------------------------------------------------------------------------
 # 26-joint calibration skeleton (subset of bml_movi_87)
 # 20 virtual joint centers + backneck + sternum + 4 foot markers
-# This matches METRABS_KEY / METRABS_BML87_INDICES in util.py
+# This matches METRABS_KEY / METRABS_BML87_INDICES in core/skeletons.py
 # ---------------------------------------------------------------------------
 METRABS_BML87_INDICES = [67, 0, 70, 3, 69, 68, 76, 84, 72, 80, 77, 85, 74, 82, 73, 81, 75, 83, 71, 79, 78, 86, 21, 52, 23, 54]
 N_CALIB_JOINTS = len(METRABS_BML87_INDICES)  # 26

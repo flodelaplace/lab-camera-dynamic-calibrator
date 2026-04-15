@@ -396,10 +396,16 @@ The joint format is **auto-detected** based on the number of joints in the 2D po
 
 ```
 lab-camera-dynamic-calibrator/
-├── util.py                   # Shared library: joint/bone defs (OP_BONE, METRABS_BONE,
-│                             #   BML87_BONE), triangulation, projection, pose I/O
 ├── argument.py               # CLI argument parser shared across entry points
 ├── conda_linux.yaml          # Conda environment (human_calib)
+│
+├── core/                     # Shared library (formerly util.py)
+│   ├── skeletons.py          # Joint indices + bone connectivity
+│   │                         #   (OP, MeTRAbs-26, bml_movi_87) + get_bone_config
+│   ├── geometry.py           # Triangulation, projection, R/T inversion
+│   ├── poses_io.py           # JSON load/save (poses, cameras, skeletons)
+│   ├── filtering.py          # Visibility / orientation helpers (linear calib)
+│   └── gpu.py                # GPU selection helper
 │
 ├── scripts/                  # Bash orchestration (entry points)
 │   ├── calibrate.sh          # Main pipeline orchestrator
@@ -441,7 +447,8 @@ lab-camera-dynamic-calibrator/
 > `cd` to the repo root, so they can be invoked from any working directory
 > (e.g. `bash /abs/path/scripts/calibrate.sh ...`). Python entry points in
 > `pose/`, `calibration/`, `postprocessing/`, and `tools/` add the repo root
-> to `sys.path` so they can import `util` and `argument` directly.
+> to `sys.path` so they can `from core import ...` and `from argument import ...`
+> regardless of CWD.
 
 ---
 

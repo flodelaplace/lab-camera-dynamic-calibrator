@@ -1,6 +1,6 @@
 #%%
 import os, sys
-# Add repo root to import path so util.py / argument.py at root remain importable
+# Add repo root to import path so the core/ package and argument.py remain importable
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
@@ -14,14 +14,14 @@ from scipy.optimize import least_squares
 from numba import jit
 import time
 from tqdm import tqdm
-import util
+import core
 from argument import parse_args
 import matplotlib
 matplotlib.use("Agg") # Mode sans interface graphique pour éviter les bugs sous WSL
 import matplotlib.pyplot as plt
 from pycalib.calib import *
 import yaml
-from util import project_cv2
+from core import project_cv2
 
 
 def to_theta(R, t, x):
@@ -343,7 +343,7 @@ def ba_main(camid, K, R_w2c, t_w2c, sp2d, ss2d, sp3d, ss3d, lambda1, lambda2,
     J = sp2d.shape[2]
 
     if bone_idx is None:
-        bone_idx = util.OP_BONE
+        bone_idx = core.OP_BONE
 
     cost_history = []
     ss2d_work = ss2d.copy()
@@ -354,7 +354,7 @@ def ba_main(camid, K, R_w2c, t_w2c, sp2d, ss2d, sp3d, ss3d, lambda1, lambda2,
         print(f"{'='*50}")
 
         # Triangulate 3D points
-        x_all = util.triangulate_with_conf(sp2d, ss2d_work, K, R_w2c, t_w2c, (ss2d_work > conf_threshold))
+        x_all = core.triangulate_with_conf(sp2d, ss2d_work, K, R_w2c, t_w2c, (ss2d_work > conf_threshold))
         x_all = x_all.reshape(N * J, 3)
         assert x_all.shape == (N * J, 3)
 
@@ -486,10 +486,10 @@ def save_mask(intrinsic, R, t, obs_mask, width, height, conf_threshold=0.5):
 
     # if bObsMask:
     print("save obs. mask")
-    sCAMID_all, _, _, _, _, _, _, sp2d_all, ss2d_all, sframes_all = util.load_eldersim(
+    sCAMID_all, _, _, _, _, _, _, sp2d_all, ss2d_all, sframes_all = core.load_eldersim(
         PREFIX, GID, AID, PID
     )
-    x_all = util.triangulate_with_conf(
+    x_all = core.triangulate_with_conf(
         sp2d_all, ss2d_all, intrinsic, R, t, (ss2d_all > conf_threshold)
     )
     projected_x2d = project_cv2(R, t, intrinsic, x_all, width, height)
@@ -552,18 +552,18 @@ if __name__ == "__main__":
     FRAME_SKIP = args.frame_skip
 
     # if OBS_MASK:
-    # sCAMID, _ , _, _, sp3d_w, sp3d, ss3d, sp2d, ss2d, sframes = util.load_eldersim(PREFIX, GID, AID, PID,joint2d_dir='2d_joint_mask')
+    # sCAMID, _ , _, _, sp3d_w, sp3d, ss3d, sp2d, ss2d, sframes = core.load_eldersim(PREFIX, GID, AID, PID,joint2d_dir='2d_joint_mask')
     #     print("12323132")
     # else :
-    sCAMID, _, _, _, sp3d_w, sp3d, ss3d, sp2d, ss2d, sframes = util.load_eldersim(
+    sCAMID, _, _, _, sp3d_w, sp3d, ss3d, sp2d, ss2d, sframes = core.load_eldersim(
         PREFIX, GID, AID, PID
     )
 
-    CAMID, intrinsic, R_w2c, t_w2c, _dist_calib = util.load_eldersim_camera(JSON_IN)
+    CAMID, intrinsic, R_w2c, t_w2c, _dist_calib = core.load_eldersim_camera(JSON_IN)
     # Load dist_coeffs from the original cameras file (not the calib result)
     _cam_file = os.path.join(PREFIX, f"cameras_G{GID:03d}.json")
     if os.path.exists(_cam_file):
-        _, _, _, _, dist_coeffs = util.load_eldersim_camera(_cam_file)
+        _, _, _, _, dist_coeffs = core.load_eldersim_camera(_cam_file)
     else:
         dist_coeffs = np.zeros((len(CAMID), 5), dtype=np.float64)
     LAMBDA1 = args.ba_lambda1
@@ -580,7 +580,7 @@ if __name__ == "__main__":
 
     # Auto-detect skeleton based on joint count
     N_JOINTS = sp2d.shape[2]
-    BONE_IDX, _ = util.get_bone_config(N_JOINTS)
+    BONE_IDX, _ = core.get_bone_config(N_JOINTS)
     print(f"dataset={DATASET}")
     print(f"target BA={JSON_IN}")
     print(f"Detected {N_JOINTS} joints -> using {len(BONE_IDX)} bones")

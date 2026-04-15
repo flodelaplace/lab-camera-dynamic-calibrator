@@ -39,7 +39,7 @@ vp3d_path = os.path.join(_REPO_ROOT, "third_party", "VideoPose3D")
 if vp3d_path not in sys.path:
     sys.path.insert(0, vp3d_path)
 
-from util import load_poses, load_eldersim_camera
+from core import load_poses, load_eldersim_camera
 
 # ── squelette OpenPose-25 ─────────────────────────────────────────────────────
 OPENPOSE_SKELETON = (
@@ -97,7 +97,7 @@ def export_to_trc(X3d_world, output_path, fps=30.0):
     import os
     N, J, _ = X3d_world.shape
     if J == 87:
-        from util import BML87_KEY
+        from core import BML87_KEY
         joint_names = [k for k, v in sorted(BML87_KEY.items(), key=lambda x: x[1])]
     elif J == 26:
         joint_names = METRABS_NAMES
@@ -287,7 +287,7 @@ def make_animation(X3d_world, R_w2c, t_w2c, output_path, fps=15, step=1):
         skeleton = (METRABS_SKELETON if X3d_world.shape[1] == 26
                     else OPENPOSE_SKELETON)
         if X3d_world.shape[1] == 87:
-            from util import BML87_BONE
+            from core import BML87_BONE
             skeleton = [(int(b[0]), int(b[1])) for b in BML87_BONE]
         for j0, j1 in skeleton:
             p0, p1 = pts_plot[j0], pts_plot[j1]

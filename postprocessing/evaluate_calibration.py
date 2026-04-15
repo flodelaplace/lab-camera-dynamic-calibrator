@@ -45,7 +45,7 @@ except ImportError:
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
-from util import load_poses, load_eldersim_camera
+from core import load_poses, load_eldersim_camera
 
 def triangulate_skeleton(p2d_all, s2d_all, K, R_w2c, t_w2c, conf_threshold=0.5):
     C, N, J, _ = p2d_all.shape

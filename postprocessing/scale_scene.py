@@ -37,7 +37,7 @@ import numpy as np
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
-from util import load_poses
+from core import load_poses
 from evaluate_calibration import export_to_toml
 
 # Keypoint indices in Halpe26 (used with RTMPose)
