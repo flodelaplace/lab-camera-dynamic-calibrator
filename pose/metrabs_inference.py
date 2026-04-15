@@ -20,9 +20,18 @@ Usage:
         --batch_size 8
 """
 
+# --- Silence TensorFlow startup noise ------------------------------------
+# These MUST be set BEFORE `import tensorflow` / `import tensorflow_hub`.
+import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'       # hide TF INFO/WARNING (keep ERROR+)
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'      # silence the oneDNN custom-ops notice
+
+import warnings
+warnings.filterwarnings('ignore')              # silence pkg_resources deprecation, etc.
+# ---------------------------------------------------------------------------
+
 import argparse
 import json
-import os
 import sys
 import glob
 
@@ -32,6 +41,7 @@ import imageio
 from tqdm import tqdm
 
 import tensorflow as tf
+tf.get_logger().setLevel('ERROR')              # defensive: also silence Python-side TF logger
 import tensorflow_hub as tfhub
 import cameralib
 
