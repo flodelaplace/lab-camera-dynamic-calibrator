@@ -122,28 +122,10 @@ def objfun_varbone(x_all, bone_idx, invalid_mask=None):
     return bone_var
 
 
-def objfun_multiview3d(R_w2c, t_w2c, x_world, sp3d_cam, ss3d, C, N, J):
-    """Penalize divergence between per-camera 3D (transformed to world) and triangulated 3D.
-
-    sp3d_cam: (C, N, J, 3) — 3D poses in each camera's coordinate frame
-    x_world:  (N*J, 3) — triangulated 3D in world frame
-    """
-    x_w = x_world.reshape(N, J, 3)
-    errors = []
-    for c in range(C):
-        R_c2w = R_w2c[c].T
-        t_c2w = -R_c2w @ t_w2c[c].reshape(3, 1)
-        p3d_c = sp3d_cam[c]  # (N, J, 3)
-        mask = (ss3d[c] > 0) & ~np.isnan(x_w[:, :, 0])  # (N, J)
-        if not mask.any():
-            continue
-        p_valid = p3d_c[mask]  # (K, 3)
-        p_world = (R_c2w @ p_valid.T + t_c2w).T  # (K, 3)
-        x_valid = x_w[mask]  # (K, 3)
-        errors.append(np.linalg.norm(x_valid - p_world, axis=1))
-    if not errors:
-        return np.array([0.0])
-    return np.concatenate(errors)
+# Note: a per-camera vs triangulated 3D consistency term (objfun_multiview3d)
+# was previously prototyped here. It is intentionally NOT included: with MeTRAbs
+# the per-camera 3D is too noisy frame-to-frame and conflicts with the 2D
+# reprojection objective, which degrades the final MRE. Do not re-introduce.
 
 
 def objfun(params, K, sp2d, ss2d, sp3d, ss3d, bone_idx, C, N, J, lambda1, lambda2, invalid_mask, conf_threshold=0.5):
@@ -165,12 +147,6 @@ def objfun(params, K, sp2d, ss2d, sp3d, ss3d, bone_idx, C, N, J, lambda1, lambda
 
     e = objfun_varbone(x.reshape(N, J, 3), bone_idx, invalid_mask)
     E.append(e * lambda2)
-
-    # Multi-view 3D consistency — disabled: per-camera 3D from MeTRAbs is too
-    # noisy and conflicts with the 2D reprojection objective, degrading results.
-    # if sp3d is not None and np.any(ss3d > 0):
-    #     e = objfun_multiview3d(R_w2c, t_w2c, x, sp3d, ss3d, C, N, J)
-    #     E.append(e * lambda1)
 
     return np.concatenate(E)
 
@@ -236,11 +212,8 @@ def build_jac_sparsity(C, N, J, ss2d_work, ss3d, bone_idx, invalid_mask, conf_th
 
     n_varbone = B
 
-    # multiview3d term disabled — no residuals from it
-    n_mv = 0
-
     n_nll = 2 * int(mask_nll.sum())
-    n_residuals = n_nll + n_var3d + n_varbone + n_mv
+    n_residuals = n_nll + n_var3d + n_varbone
 
     all_rows = []
     all_cols = []
@@ -284,8 +257,6 @@ def build_jac_sparsity(C, N, J, ss2d_work, ss3d, bone_idx, invalid_mask, conf_th
         all_rows.append(np.full(len(pt_cols), row))
         all_cols.append(pt_cols)
         row += 1
-
-    # multiview3d sparsity block removed (term disabled)
 
     assert row == n_residuals, f"Sparsity row mismatch: {row} vs {n_residuals}"
 

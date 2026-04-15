@@ -407,63 +407,6 @@ def z_test_w2c(R1, t1, R2, t2, n1, n2):
     return 1 if zp > zn else -1, zp, zn
 
 
-def eval_R(R1, R2):
-    def thetaR(R):
-        e = (np.trace(R) - 1.0) / 2.0
-        if e > 1:
-            e = 1
-        elif e < -1:
-            e = -1
-        return np.arccos(e)
-
-    def logR(R):
-        t = thetaR(R)
-        if t == 0:
-            return 0
-        else:
-            t / (2 * np.sin(t)) * (R - R.T)
-
-    return np.linalg.norm(thetaR(R1.T @ R2)) / np.sqrt(2)
-
-
-def eval_t(t1, t2):
-    return np.linalg.norm(t1.flatten() - t2.flatten())
-
-
-def to_x(K, rvec, tvec):
-    return np.hstack([K[0, 0], K[0, 2], K[1, 2], rvec.flatten(), tvec.flatten()])
-
-
-def from_x(x):
-    K = np.eye(3)
-    K[0, 0] = K[1, 1] = x[0]
-    K[0, 2] = x[1]
-    K[1, 2] = x[2]
-    rvec = x[3:6]
-    tvec = x[6:9]
-    return K, rvec, tvec
-
-
-def reprojection_error(x, p3d, p2d):
-    K, rvec, tvec = from_x(x)
-    q, _ = cv2.projectPoints(p3d, rvec, tvec, K, np.zeros(5))
-    q = q.reshape((-1, 2))
-    return (q - p2d).flatten()
-
-
-def reprojection_error_all(
-    K_list, R_w2c_list, t_w2c_list, p3d_Nx3, p2d_CxNx2, mask_CxN
-):
-    E = []
-    for k, r, t, p2d, m in zip(K_list, R_w2c_list, t_w2c_list, p2d_CxNx2, mask_CxN):
-        x = cv2.projectPoints(
-            p3d_Nx3[m, :].T, cv2.Rodrigues(r)[0], t.flatten(), k, None
-        )[0].reshape((-1, 2))
-        E.append(np.array(x - p2d[m, :]))
-
-    return E
-
-
 def triangulate(pt2d, P):
     """
     Triangulate a 3D point from two or more views by DLT.
@@ -483,32 +426,6 @@ def triangulate(pt2d, P):
         return v[:, 0]
     else:
         return v[:, 0] / v[3, 0]
-
-
-def triangulate_all(K_list, R_w2c_list, t_w2c_list, p2d_CxNx2, mask_CxN):
-    Nc = len(K_list)
-    Np = p2d_CxNx2.shape[1]
-    assert K_list.shape == (Nc, 3, 3)
-    assert R_w2c_list.shape == (Nc, 3, 3)
-    assert t_w2c_list.shape == (Nc, 3, 1)
-    assert p2d_CxNx2.shape == (Nc, Np, 2)
-    assert mask_CxN.shape == (Nc, Np)
-    assert mask_CxN.dtype == bool
-
-    P_est = []
-    for i in range(Nc):
-        P_est.append(K_list[i] @ np.hstack((R_w2c_list[i], t_w2c_list[i])))
-    P_est = np.array(P_est)
-
-    X = []
-    for i in range(Np):
-        x = p2d_CxNx2[:, i, :].reshape((Nc, 2))
-        m = mask_CxN[:, i]
-
-        x3d = triangulate(x[m], P_est[m])
-        X.append(x3d[:3])
-    X = np.array(X)
-    return X
 
 
 def constraint_mat_from_single_view(p, proj_mat):
@@ -632,24 +549,6 @@ def load_eldersim_skeleton_w(filename):
     return p3d_w, frames
 
 
-def load_poses_all(dirname, cameras, aid, pid, gid):
-    # load 2d or 3d joints in a directory
-    f_all = []
-    p_all = []
-    s_all = []
-    for cid in cameras:
-        f, p, s = load_poses(
-            os.path.join(dirname, f"A{aid:03d}_P{pid:03d}_G{gid:03d}_C{cid:03d}.json")
-        )
-        N = len(f)
-        n_joints = s.shape[1]  # detect from score array (25 or 26)
-        f_all.append(f)
-        p_all.append(p.reshape((N, n_joints, -1)))  # works for both 2D and 3D
-        s_all.append(s)
-
-    return np.array(f_all), np.array(p_all), np.array(s_all)
-
-
 def load_eldersim(dirname, gid, aid, pid, joint2d_dir="2d_joint"):
     CAMID, K, R_w2c, t_w2c, _dist = load_eldersim_camera(
         os.path.join(dirname, f"cameras_G{gid:03d}.json")
@@ -721,12 +620,6 @@ def load_eldersim(dirname, gid, aid, pid, joint2d_dir="2d_joint"):
         np.array(s2d_common),
         f2d_common,
     )
-
-
-def visible_from_all_cam(mask_CxNxJ):
-    # find joints visible from all cams
-    mask = np.min(mask_CxNxJ, axis=0)
-    return mask
 
 
 def joints2orientations(p3d_CxNxJx3, mask_CxNxJ, bones_Jx2):
@@ -814,10 +707,6 @@ def project(K, R_w2c, t_w2c, pts3d_w):
     # return cv2.projectPoints(pts3d_w, cv2.Rodrigues(R_w2c)[0], t_w2c, K, None)[0].reshape((-1, 2))
 
 
-# def reprojection_error(K, R_w2c, t_w2c, pts3d_w, pts2d):
-#    return pts2d[:,:2] - project(K, R_w2c, t_w2c, pts3d_w)[:,:2]
-
-
 def invRT_batch(R_w2c_gt, t_w2c_gt):
     t_c2w_gt = []
     R_c2w_gt = []
@@ -882,26 +771,6 @@ def select_gpu(i_selected_gpu=None):
         torch.zeros(2 * 10**4, dtype=torch.float64).cuda()
 
 
-# def project_cv2_ba(Rs, ts, Ks, X):
-
-#     assert Rs.ndim == 3
-#     assert Ks.ndim == 3
-#     assert ts.ndim == 3  # (C,3,1)
-
-#     Nc, _, _ = Rs.shape
-#     Nf, Nj, _ = X.shape
-#     X = X.reshape(Nf*Nj, 3)
-#     x_out = []
-#     for R, t, K in zip(Rs, ts, Ks):
-#         rvec = cv2.Rodrigues(R)[0]
-#         x, _ = cv2.projectPoints(X[None, :, :], rvec, t, K, np.zeros(0))
-#         x = x[:, -1, :]
-#         x_out.append(x)
-#     x_out = np.array(x_out)
-#     x_out = x_out.reshape(Nc, Nf, Nj, 2)
-#     return np.array(x_out)
-
-
 def save_cam(Rw2cs, tw2cs, Ks, dists, dst, gid, CAMERAS):
     print(f"save_camera:{dst}")
     with open(os.path.join(dst, f"cameras_G{gid:03d}.json"), "w") as fp:
@@ -913,51 +782,6 @@ def save_cam(Rw2cs, tw2cs, Ks, dists, dst, gid, CAMERAS):
             "t_w2c": tw2cs.tolist(),
         }
         json.dump(out, fp, indent=2, ensure_ascii=True)
-
-
-def project_cv2_nan(Rs, ts, Ks, X, width, height):
-
-    assert Rs.ndim == 3
-    assert Ks.ndim == 3
-    assert ts.ndim == 3  # (C,3,1)
-
-    Nc, _, _ = Rs.shape
-    Nf, Nj, _ = X.shape
-    X = X.reshape(Nf * Nj, 3)
-    x_out = []
-    for R, t, K in zip(Rs, ts, Ks):
-        rvec = cv2.Rodrigues(R)[0]
-        x, _ = cv2.projectPoints(X[None, :, :], rvec, t, K, np.zeros(0))
-        x = x[:, -1, :]
-        x[np.any(x < 0, axis=1), :] = np.nan
-        x[x[:, 0] > width, :] = np.nan
-        x[x[:, 1] > height, :] = np.nan
-        x_out.append(x)
-    x_out = np.array(x_out)
-    x_out = x_out.reshape(Nc, Nf, Nj, 2)
-    return np.array(x_out)
-
-
-def get_ccs(Rs_w2c, ts_w2c, X3d_w_coco, vis_mask_2d_3d):
-
-    assert X3d_w_coco.ndim == 3
-    Nf, Nj, _ = X3d_w_coco.shape
-
-    X3d_w_coco = X3d_w_coco.reshape(Nf * Nj, 3)
-    # Rs_w2c, ts_w2c = invRT_batch(Rs_c2w, ts_c2w)
-    # ts_w2c = ts_w2c[:, :, None]
-    X3d_c_coco = []
-
-    for R_w2c, t_w2c, vis_mask_2d_3d_i in zip(Rs_w2c, ts_w2c, vis_mask_2d_3d):
-        Xc_coco = (R_w2c @ X3d_w_coco.T + t_w2c).T
-        Xc_coco = Xc_coco.reshape(Nf, Nj, -1)
-        Xc_coco[~vis_mask_2d_3d_i] = np.nan
-
-        X3d_c_coco.append(Xc_coco)
-
-    X3d_c_coco = np.array(X3d_c_coco)
-
-    return X3d_c_coco
 
 
 def save_joint(save_dir, kpt_op, kpt_score_op, aid, pid, gid, CAMERAS):
@@ -990,48 +814,6 @@ def save_joint(save_dir, kpt_op, kpt_score_op, aid, pid, gid, CAMERAS):
             json.dump({"data": data}, fp, indent=2, ensure_ascii=True)
 
 
-def save_skelton_w_op(X3d_w_op, dst, gid):
-    print(f"save_skelton_w_op:{dst}")
-    Nf, Nj, _ = X3d_w_op.shape
-
-    frames = np.arange(1, Nf + 1)
-
-    with open(os.path.join(dst, f"skeleton_w_G{gid:03d}.json"), "w") as fp:
-        out = {
-            "skeleton": X3d_w_op.astype(np.float64).tolist(),
-            "frame_indices": frames.tolist(),
-        }
-        json.dump(out, fp, indent=2, ensure_ascii=True)
-
-
-def convert_coco_to_op(kp_coco):
-
-    kp_op = np.full((kp_coco.shape[0], 25, kp_coco.shape[2]), np.nan, dtype=np.float32)
-    for k_op, k_coco in op_to_coco.items():
-        kp_op[:, OP_KEY[k_op], :] = kp_coco[:, COCO_KEY[k_coco], :]
-    kp_op[:, OP_KEY["Neck"], :] = (
-        kp_coco[:, COCO_KEY["L_Shoulder"], :] + kp_coco[:, COCO_KEY["R_Shoulder"], :]
-    ) / 2
-    kp_op[:, OP_KEY["MidHip"], :] = (
-        kp_coco[:, COCO_KEY["R_Hip"], :] + kp_coco[:, COCO_KEY["L_Hip"], :]
-    ) / 2
-    return kp_op
-
-
-def convert_coco_to_op_score(kp_coco):
-
-    kp_op = np.full((kp_coco.shape[0], 25), np.nan, dtype=np.float32)
-    for k_op, k_coco in op_to_coco.items():
-        kp_op[:, OP_KEY[k_op]] = kp_coco[:, COCO_KEY[k_coco]]
-    kp_op[:, OP_KEY["Neck"]] = (
-        kp_coco[:, COCO_KEY["L_Shoulder"]] + kp_coco[:, COCO_KEY["R_Shoulder"]]
-    ) / 2
-    kp_op[:, OP_KEY["MidHip"]] = (
-        kp_coco[:, COCO_KEY["R_Hip"]] + kp_coco[:, COCO_KEY["L_Hip"]]
-    ) / 2
-    return kp_op
-
-
 def project_cv2(Rs, ts, Ks, X, width, height):
 
     assert Rs.ndim == 3
@@ -1055,53 +837,3 @@ def project_cv2(Rs, ts, Ks, X, width, height):
     return np.array(x_out)
 
 
-def get_poses_from_vp3d(third_party_dir, file_poses, file_scores, nframe):
-    x2d_coco = []
-    scores_coco_all = []
-
-    for fpose, fscore in zip(file_poses, file_scores):
-        # fid = fpose.split("/")[-1].split(".")[0]
-        fid = fscore.split("/")[-1].split(".")[0]
-
-        f_pose_npz = np.load(fpose, allow_pickle=True)
-
-        x2d = f_pose_npz["positions_2d"].item()[f"{fid}.mp4"]["custom"][0]
-        x2d_coco.append(x2d[:nframe, :, :])
-
-        f_score_npz = np.load(fscore, allow_pickle=True)
-        scores_coco = []
-        for i in range(f_score_npz["keypoints"].shape[0]):
-            scores_coco.append((f_score_npz["keypoints"][i][1][-1, :].T)[:, 3])
-        scores_coco = np.array(scores_coco)
-        scores_coco_all.append(scores_coco[:nframe, :])
-    x2d_coco = np.array(x2d_coco)
-    scores_coco_all = np.array(scores_coco_all)
-
-    return x2d_coco, scores_coco_all
-
-
-def convert_h36m_to_op(X_h36m_32):
-
-    X_h36m_17 = X_h36m_32[:, list(H36M32_KEY.values()), :]
-    X_op_25 = h36m_17_to_op(X_h36m_17)
-
-    return X_op_25
-
-
-def h36m_17_to_op(pose_h36m):
-    J_open = 25
-    T, _, N_COORD = pose_h36m.shape
-    # check_a(pose_h36m, (T, J_h36m_17, None), None)
-    pose_op = np.full((T, J_open, N_COORD), np.nan, dtype=pose_h36m.dtype)
-    for k, op_idx in OP_KEY.items():
-        if k in H36M17_KEY:
-            pose_op[:, op_idx, :] = pose_h36m[:, H36M17_KEY[k], :]
-        pose_op[:, OP_KEY["Neck"], :] = (
-            pose_h36m[:, H36M17_KEY["RShoulder"], :]
-            + pose_h36m[:, H36M17_KEY["LShoulder"], :]
-        ) / 2.0
-        pose_op[:, OP_KEY["MidHip"], :] = (
-            pose_h36m[:, H36M17_KEY["RHip"], :] + pose_h36m[:, H36M17_KEY["LHip"], :]
-        ) / 2.0
-
-    return pose_op

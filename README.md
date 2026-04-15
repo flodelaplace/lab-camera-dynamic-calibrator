@@ -408,7 +408,6 @@ lab-camera-dynamic-calibrator/
 ├── util.py                   # Joint/bone definitions (OP_BONE, METRABS_BONE, BML87_BONE), triangulation
 ├── argument.py               # CLI argument parsing
 ├── create_cameras_from_toml.py  # TOML → cameras JSON converter
-├── my_dataset.py             # Dataset class for pose data
 ├── config/config.yaml        # Auto-generated session configuration
 ├── conda_linux.yaml          # Conda environment (human_calib)
 ├── setup_models.sh           # VideoPose3D model download
