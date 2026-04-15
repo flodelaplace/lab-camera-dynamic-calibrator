@@ -122,22 +122,78 @@ Key packages: Python 3.8, PyTorch 1.13 (CUDA 11.7), scipy, opencv, rtmlib, numba
 
 MeTRAbs requires a **separate** conda environment (Python 3.10, TensorFlow) because it is incompatible with the PyTorch-based `human_calib` environment. The pipeline handles the environment switching automatically via `conda run`.
 
+#### Platform support
+
+| Platform | Status |
+|---|---|
+| **Linux** (Ubuntu 22.04) | Tested, fully supported |
+| **Windows via WSL2** | Tested, fully supported (recommended for Windows users) |
+| **Windows native** | Not tested — CUDA/TensorFlow GPU setup differs significantly (system-wide NVIDIA CUDA install required instead of conda). CPU-only mode may work. If you're on Windows, **use WSL2**. |
+| **macOS** | Not supported (requires NVIDIA GPU) |
+
+#### Prerequisites
+
+- Linux or WSL2 (tested on Ubuntu 22.04)
+- NVIDIA GPU with recent drivers (tested with RTX 3500 Ada)
+- [Miniconda](https://docs.conda.io/en/latest/miniconda.html) or Anaconda
+
+#### 1. Clone the repository
+
 ```bash
-# Clone the MeTRAbs-to-OpenSim repository
 cd ..
 git clone https://github.com/flodelaplace/Metrabs_to_Opensim.git
 cd Metrabs_to_Opensim
+```
 
-# Create the environment
-conda env create -f environment.yml
+#### 2. Create the conda environment
+
+```bash
+conda env create --file environment.yml
 conda activate metrabs_opensim
+```
 
+#### 3. Configure GPU (CUDA)
+
+TensorFlow installed via pip needs the CUDA library path set manually:
+
+```bash
+mkdir -p $CONDA_PREFIX/etc/conda/activate.d
+echo 'export LD_LIBRARY_PATH=$CONDA_PREFIX/lib:$LD_LIBRARY_PATH' \
+  > $CONDA_PREFIX/etc/conda/activate.d/env_vars.sh
+
+# Reactivate to apply
+conda deactivate && conda activate metrabs_opensim
+```
+
+Verify GPU access:
+
+```bash
+python -c "import tensorflow as tf; print(tf.config.list_physical_devices('GPU'))"
+# Expected: [PhysicalDevice(name='/physical_device:GPU:0', device_type='GPU')]
+```
+
+#### 4. MeTRAbs model (automatic)
+
+The MeTRAbs model is downloaded automatically on first run via TensorFlow Hub (~700 MB). It is cached in `~/.cache/tfhub_modules/` — subsequent runs start instantly.
+
+No manual download is needed.
+
+#### Tested versions
+
+| Component | Version |
+|---|---|
+| Python | 3.10 |
+| TensorFlow | 2.12.0 |
+| CUDA Toolkit | 11.8 |
+| cuDNN | 8.9 |
+| supervision | 0.27+ |
+| NVIDIA Driver | 581+ |
+
+```bash
 cd ../lab-camera-dynamic-calibrator
 ```
 
-> The MeTRAbs model (`metrabs_l`, ~700 MB) is downloaded automatically from TensorFlow Hub on first run and cached in `~/.cache/tfhub_modules/`. No manual download needed.
-
-See the [Metrabs_to_Opensim repository](https://github.com/flodelaplace/Metrabs_to_Opensim) for detailed installation, troubleshooting, and standalone single-camera usage.
+See the [Metrabs_to_Opensim repository](https://github.com/flodelaplace/Metrabs_to_Opensim) for additional info on standalone single-camera usage and troubleshooting.
 
 ### VideoPose3D setup (RTMPose path only)
 
