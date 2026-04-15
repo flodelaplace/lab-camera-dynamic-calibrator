@@ -30,13 +30,14 @@ import matplotlib.animation as animation
 import mpl_toolkits.mplot3d.art3d as art3d
 import yaml
 
-# ── chemin vers pycalib ──────────────────────────────────────────────────────
-script_dir = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, script_dir)
+# Add repo root for util import (script lives in postprocessing/) and locate VideoPose3D
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
 
-# Obtenir le chemin absolu du script actuel pour localiser VideoPose3D
-vp3d_path = os.path.join(script_dir, "third_party", "VideoPose3D")
-sys.path.insert(0, vp3d_path)
+vp3d_path = os.path.join(_REPO_ROOT, "third_party", "VideoPose3D")
+if vp3d_path not in sys.path:
+    sys.path.insert(0, vp3d_path)
 
 from util import load_poses, load_eldersim_camera
 
@@ -348,7 +349,7 @@ def main():
         out_dir = os.path.join(args.prefix, "results", "camera")
         args.output = os.path.join(out_dir, f"visu_3d_{args.calib}.gif")
 
-    with open("./config/config.yaml") as f:
+    with open(os.path.join(_REPO_ROOT, "config", "config.yaml")) as f:
         config = yaml.safe_load(f)
     
     base_name = os.path.basename(os.path.normpath(args.prefix))

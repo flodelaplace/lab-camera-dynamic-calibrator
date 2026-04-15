@@ -1,4 +1,8 @@
 #!/bin/bash
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+cd "${REPO_ROOT}"
+
 # Default values
 START_FRAME=""
 END_FRAME=""
@@ -19,7 +23,7 @@ done
 if [ $# -lt 7 ]; then
     echo
     echo "Usage: $0 PREFIX AID PID GID TARGET FRAME_SKIP DATASET [--start_frame S] [--end_frame E]"
-    echo "[e.g.] sh ./calib_linear.sh ./data/A023_P102_G003 23 102 3 noise_3_0 1 SynADL"
+    echo "[e.g.] bash scripts/calib_linear.sh ./data/A023_P102_G003 23 102 3 noise_3_0 1 SynADL"
     exit 1
 fi
 
@@ -163,7 +167,7 @@ for i in $(seq 0 $((NUM_CHUNKS - 1))); do
     echo ""
     echo "--- Processing Chunk ${i}/${NUM_CHUNKS} (Frames ${FRAME_START}-${FRAME_END}) ---"
 
-    python3 calib_linear.py \
+    python3 "${REPO_ROOT}/calibration/calib_linear.py" \
         --prefix "${PREFIX}" \
         --aid ${AID} --pid ${PID} --gid ${GID} \
         --target ${TARGET} \
@@ -185,7 +189,7 @@ BEST_CHUNK_FILE=""
 for chunk_file in $(ls -v "${CHUNK_RESULTS_DIR}"/linear_chunk_*.json 2>/dev/null); do
     CHUNK_ID=$(echo "$chunk_file" | sed -n 's/.*linear_chunk_\([0-9]*\).json/\1/p')
 
-    OUTPUT=$(python3 evaluate_calibration.py \
+    OUTPUT=$(python3 "${REPO_ROOT}/postprocessing/evaluate_calibration.py" \
         --prefix "${PREFIX}" \
         --calib "chunks/linear_chunk_${CHUNK_ID}" \
         --conf_threshold ${CONF_THRESHOLD})

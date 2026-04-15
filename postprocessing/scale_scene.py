@@ -31,8 +31,12 @@ import re
 import cv2
 import numpy as np
 
-# Add local modules to path
-sys.path.insert(0, os.path.abspath("./"))
+# Add repo root for util import (script lives in postprocessing/);
+# sibling evaluate_calibration is found automatically since Python adds the
+# script's own directory to sys.path.
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
 from util import load_poses
 from evaluate_calibration import export_to_toml
 

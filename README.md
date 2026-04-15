@@ -145,7 +145,7 @@ Only needed if you use the RTMPose + VideoPose3D pipeline:
 
 ```bash
 conda activate human_calib
-bash setup_models.sh
+bash scripts/setup_models.sh
 ```
 
 This clones VideoPose3D into `./third_party/VideoPose3D` and downloads the pretrained weights into `./model/`.
@@ -169,7 +169,7 @@ A demo dataset (4 cameras, 100 frames) is included in `demo/`.
 ```bash
 conda activate human_calib
 
-bash ./calibrate.sh \
+bash scripts/calibrate.sh \
     demo \
     demo/Calib_scene.toml \
     output/demo_metrabs \
@@ -183,7 +183,7 @@ bash ./calibrate.sh \
 ```bash
 conda activate human_calib
 
-bash ./calibrate.sh \
+bash scripts/calibrate.sh \
     demo \
     demo/Calib_scene.toml \
     output/demo_rtmpose \
@@ -228,7 +228,7 @@ fisheye = false
 ### Run the calibration
 
 ```bash
-bash ./calibrate.sh <video_dir> <calib_toml> <output_dir> [options]
+bash scripts/calibrate.sh <video_dir> <calib_toml> <output_dir> [options]
 ```
 
 ### Required arguments
@@ -257,7 +257,7 @@ bash ./calibrate.sh <video_dir> <calib_toml> <output_dir> [options]
 ### Full example
 
 ```bash
-bash ./calibrate.sh \
+bash scripts/calibrate.sh \
     input/my_session \
     input/my_session/Calib_scene.toml \
     output/my_session \
@@ -396,29 +396,52 @@ The joint format is **auto-detected** based on the number of joints in the 2D po
 
 ```
 lab-camera-dynamic-calibrator/
-├── calibrate.sh              # Main pipeline orchestrator (entry point)
-├── metrabs_inference.py      # MeTRAbs pose extraction (bml_movi_87 → calib-26)
-├── rtmlib_inference.py       # RTMPose 2D pose detection
-├── inference.py / .sh        # VideoPose3D 3D lifting
-├── calib_linear.py / .sh     # Linear calibration (Procrustes or collinearity) + chunking
-├── ba.py / .sh               # Bundle Adjustment with Jacobian sparsity + OOM auto-retry
-├── scale_scene.py            # Metric scaling and gravity alignment (auto-detects joint format)
-├── evaluate_calibration.py   # MRE evaluation, visualization, and TOML export
-├── visualize_results.py      # 3D GIF rendering (auto-detects skeleton: 87/26/25 joints)
-├── util.py                   # Joint/bone definitions (OP_BONE, METRABS_BONE, BML87_BONE), triangulation
-├── argument.py               # CLI argument parsing
-├── create_cameras_from_toml.py  # TOML → cameras JSON converter
-├── config/config.yaml        # Auto-generated session configuration
+├── util.py                   # Shared library: joint/bone defs (OP_BONE, METRABS_BONE,
+│                             #   BML87_BONE), triangulation, projection, pose I/O
+├── argument.py               # CLI argument parser shared across entry points
 ├── conda_linux.yaml          # Conda environment (human_calib)
-├── setup_models.sh           # VideoPose3D model download
-├── utils/                    # Utility scripts
-│   ├── convert_calib_rotation.py  # Convert calibration rotation formats
-│   └── rotate_video.py       # Video rotation helper
+│
+├── scripts/                  # Bash orchestration (entry points)
+│   ├── calibrate.sh          # Main pipeline orchestrator
+│   ├── calib_linear.sh       # Chunked linear calibration + best-chunk selection
+│   ├── ba.sh                 # Bundle Adjustment runner with OOM auto-retry
+│   ├── inference.sh          # VideoPose3D 3D lifting wrapper
+│   └── setup_models.sh       # VideoPose3D model download
+│
+├── pose/                     # 2D detection and 3D lifting
+│   ├── metrabs_inference.py  # MeTRAbs pose extraction (bml_movi_87 → calib-26)
+│   ├── rtmlib_inference.py   # RTMPose 2D pose detection
+│   └── inference.py          # VideoPose3D 3D lifting
+│
+├── calibration/              # Extrinsic calibration core
+│   ├── calib_linear.py       # Linear calibration (Procrustes / collinearity)
+│   └── ba.py                 # Bundle Adjustment with Jacobian sparsity
+│
+├── postprocessing/           # Evaluation, scaling, visualization
+│   ├── evaluate_calibration.py  # MRE evaluation, visualization, TOML export
+│   ├── scale_scene.py        # Metric scaling and gravity alignment
+│   └── visualize_results.py  # 3D GIF rendering (auto-detects 87/26/25 joints)
+│
+├── tools/                    # One-off utilities
+│   └── create_cameras_from_toml.py  # TOML → cameras JSON converter
+│
+├── utils/                    # Helper scripts
+│   ├── convert_calib_rotation.py
+│   └── rotate_video.py
+│
+├── config/config.yaml        # Auto-generated session configuration
 ├── demo/                     # Demo dataset (4 cameras, 100 frames)
 ├── input/                    # Place your calibration sessions here
 ├── output/                   # Calibration results
-└── third_party/              # VideoPose3D submodule
+├── third_party/              # VideoPose3D submodule
+└── legacy/archive/           # Legacy / research scripts (kept for reference)
 ```
+
+> All scripts in `scripts/` resolve their own location via `BASH_SOURCE` and
+> `cd` to the repo root, so they can be invoked from any working directory
+> (e.g. `bash /abs/path/scripts/calibrate.sh ...`). Python entry points in
+> `pose/`, `calibration/`, `postprocessing/`, and `tools/` add the repo root
+> to `sys.path` so they can import `util` and `argument` directly.
 
 ---
 

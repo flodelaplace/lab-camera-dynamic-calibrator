@@ -1,14 +1,15 @@
-import argument
 import os, sys
 
-# Obtenir le chemin absolu du script actuel pour localiser VideoPose3D
-script_dir = os.path.dirname(os.path.abspath(__file__))
-vp3d_path = os.path.join(script_dir, "third_party", "VideoPose3D")
+# This script lives in pose/. Add repo root for util/argument and locate VideoPose3D.
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
 
+vp3d_path = os.path.join(_REPO_ROOT, "third_party", "VideoPose3D")
 if vp3d_path not in sys.path:
     sys.path.append(vp3d_path)
 
-
+import argument
 from util import load_poses, op_to_coco, COCO_KEY, H36M17_KEY, select_gpu
 import numpy as np
 from util import OP_KEY

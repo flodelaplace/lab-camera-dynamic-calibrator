@@ -1,10 +1,14 @@
 #%%
+import os, sys
+# Add repo root to import path so util.py / argument.py at root remain importable
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
+
 import cv2
 from matplotlib.style import available
 import numpy as np
-import sys
 import json
-import os
 from scipy.sparse import lil_matrix
 from scipy.optimize import least_squares
 from numba import jit
@@ -539,7 +543,7 @@ if __name__ == "__main__":
     # bObsMask = args.obs_mask
     TH_MASK = args.th_obs_mask
 
-    with open("./config/config.yaml") as file:
+    with open(os.path.join(_REPO_ROOT, "config", "config.yaml")) as file:
         config = yaml.safe_load(file.read())
 
     width = config[DATASET]["width"]

@@ -11,12 +11,12 @@ This guide explains how to calibrate camera extrinsics from your own videos usin
 
 ### 2. Run the Full Calibration Pipeline
 
-We provide an automated script `calibrate.sh` that chains all the necessary steps: 2D pose extraction, 3D lifting, linear calibration, bundle adjustment, and real-world metric scaling.
+We provide an automated script `scripts/calibrate.sh` that chains all the necessary steps: 2D pose extraction, 3D lifting, linear calibration, bundle adjustment, and real-world metric scaling.
 
 **Example using the demo dataset:**
 
 ```bash
-bash ./calibrate.sh \
+bash scripts/calibrate.sh \
     "demo/" \
     "demo/Calib_scene.toml" \
     "./output/demo_calibration" \
@@ -57,7 +57,7 @@ If you prefer to run the steps manually to debug or inspect intermediate files:
 
 1. **Extract 2D Keypoints (RTMPose)**
 ```bash
-python rtmlib_inference.py \
+python pose/rtmlib_inference.py \
     --video_dir demo/ \
     --output_dir output/demo_calibration \
     --aid 1 --pid 1 --gid 1 \
@@ -67,7 +67,7 @@ python rtmlib_inference.py \
 
 2. **Generate Camera JSON File**
 ```bash
-python create_cameras_from_toml.py \
+python tools/create_cameras_from_toml.py \
     --toml demo/Calib_scene.toml \
     --output_dir output/demo_calibration/raw_rtm \
     --gid 1 \
@@ -76,18 +76,18 @@ python create_cameras_from_toml.py \
 
 3. **Lift to 3D Keypoints (VideoPose3D)**
 ```bash
-sh inference.sh output/demo_calibration 1 1 1 raw_rtm pretrained_h36m_detectron_coco.bin Custom
+bash scripts/inference.sh output/demo_calibration 1 1 1 raw_rtm pretrained_h36m_detectron_coco.bin Custom
 ```
 
 4. **Calibrate Camera Extrinsics**
 ```bash
-sh calib_linear.sh output/demo_calibration 1 1 1 raw_rtm 10 Custom
-sh ba.sh output/demo_calibration 1 1 1 10 1. 100000. linear_1_0 Custom false true
+bash scripts/calib_linear.sh output/demo_calibration 1 1 1 raw_rtm 10 Custom
+bash scripts/ba.sh output/demo_calibration 1 1 1 10 1. 100000. linear_1_0 Custom false true
 ```
 
 5. **Scale and Align to True World Coordinates**
 ```bash
-python scale_scene.py \
+python postprocessing/scale_scene.py \
     --prefix output/demo_calibration \
     --calib linear_1_0_ba \
     --height 1.80 \
@@ -100,7 +100,7 @@ python scale_scene.py \
 
 6. **Visualization**
 ```bash
-python visualize_results.py \
+python postprocessing/visualize_results.py \
     --prefix output/demo_calibration \
     --subset raw_rtm \
     --calib linear_1_0_ba_oriented_scaled \

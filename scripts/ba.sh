@@ -1,9 +1,13 @@
 #!/bin/bash
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+cd "${REPO_ROOT}"
+
 if [ $# -lt 11 ]; then
     echo
     echo $0
     echo "[Usage] PREFIX AID PID GID FRAME_SKIP LAMBDA1 LAMBDA2 TARGET DATASET OBS_MASK SAVE_OBS_MASK [CONF_THRESHOLD]"
-    echo "[e.g.] sh ./ba.sh ./data/A023_P102_G003 23 102 3 1 1. 100000. linear_3_0 SynADL false false"
+    echo "[e.g.] bash scripts/ba.sh ./data/A023_P102_G003 23 102 3 1 1. 100000. linear_3_0 SynADL false false"
     exit
 fi
 
@@ -27,7 +31,7 @@ while true; do
     echo "Attempting Bundle Adjustment with FRAME_SKIP=${CURRENT_FRAME_SKIP}..."
 
     # Run the python command
-    python3 ba.py \
+    python3 "${REPO_ROOT}/calibration/ba.py" \
         --prefix ${PREFIX} \
         --aid ${AID} \
         --pid ${PID} \
