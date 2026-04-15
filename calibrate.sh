@@ -155,7 +155,7 @@ with open('${FIRST_FILE}') as f:
 
     if [ "$POSES_EXIST" = false ]; then
         SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-        PYTHONUNBUFFERED=1 conda run --live-stream -n metrabs python -u "${SCRIPT_DIR}/metrabs_inference.py" \
+        PYTHONUNBUFFERED=1 conda run --live-stream -n metrabs_opensim python -u "${SCRIPT_DIR}/metrabs_inference.py" \
             --video_dir "${VIDEO_DIR}" \
             --calib_toml "${CALIB_TOML}" \
             --output_dir "${OUTPUT_DIR}" \

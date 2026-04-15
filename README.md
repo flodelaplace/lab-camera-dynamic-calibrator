@@ -2,6 +2,13 @@
 
 A complete pipeline for **extrinsic camera calibration from a moving person**. It leverages human pose estimation to calibrate multi-camera setups without needing a checkerboard or specialized calibration patterns — just a person walking in the scene.
 
+Two pose estimation architectures are supported, with fundamentally different approaches:
+
+- **MeTRAbs (recommended)** — Predicts **metric 3D poses directly** from each camera view in a single step. With 87 body joints from the `bml_movi_87` skeleton, it provides a rich, dense representation that yields high-quality calibrations. The per-camera 3D predictions enable **Procrustes alignment** as initialization, giving a strong starting point before bundle adjustment.
+- **RTMPose + VideoPose3D** — The classic two-step approach: first detect **2D keypoints** with RTMPose, then **lift to 3D** with VideoPose3D. This uses 25 OpenPose joints (12 bones) and produces relative-scale 3D, requiring more optimization effort to converge.
+
+In short, MeTRAbs collapses the 2D detection + 3D lifting into a **single forward pass** that outputs metric-scale 3D, while the RTMPose path requires two separate models and produces relative-scale 3D that must be rescaled during calibration.
+
 ![Overview camera extrinsics](img/Graphical_abstract_lab_camera_dynamic_calibrator.png)
 
 ---
@@ -12,10 +19,10 @@ The pipeline processes synchronized multi-camera videos through a 7-step pipelin
 
 | Step | Script | Description |
 |------|--------|-------------|
-| **1. Pose Extraction** | `metrabs_inference.py` or `rtmlib_inference.py` | Detect 2D keypoints (+ direct 3D with MeTRAbs) in all camera views |
+| **1. Pose Extraction** | `metrabs_inference.py` or `rtmlib_inference.py` | Detect 2D keypoints (+ direct metric 3D with MeTRAbs) in all camera views |
 | **2. Intrinsics Loading** | `create_cameras_from_toml.py` | Parse camera matrices & distortion from a Pose2Sim-compatible TOML |
 | **3. Configuration** | *(inline in calibrate.sh)* | Auto-detect number of cameras, joints, frame count; write `config.yaml` |
-| **4. 3D Lifting** | `inference.sh` / `inference.py` | Lift 2D→3D with VideoPose3D *(skipped when using MeTRAbs)* |
+| **4. 3D Lifting** | `inference.sh` / `inference.py` | Lift 2D→3D with VideoPose3D *(skipped when using MeTRAbs — 3D is already available)* |
 | **5. Calibration** | `calib_linear.sh` / `calib_linear.py` → `ba.sh` / `ba.py` | Linear calibration (with Procrustes init for MeTRAbs) + Bundle Adjustment |
 | **6. Evaluation** | `evaluate_calibration.py` | Compute Mean Reprojection Error (MRE) per camera + visualizations |
 | **7. Scaling** | `scale_scene.py` | Orient scene (gravity-aligned) and scale to metric units using person height |
@@ -26,32 +33,39 @@ The pipeline processes synchronized multi-camera videos through a 7-step pipelin
 
 ## Pose Engines
 
-Two pose estimation backends are supported:
+Two pose estimation backends are supported, with fundamentally different architectures:
 
-### MeTRAbs (recommended)
+### MeTRAbs (recommended) — Direct 3D in one step
 
-[MeTRAbs](https://github.com/isarandi/metrabs) is a metric-scale 3D human pose estimator. We use the **`bml_movi_87`** skeleton (87 joints from the [BML MoVi](https://www.biomotionlab.ca/movi/) dataset), from which we extract a **26-joint calibration subset**:
+[MeTRAbs](https://github.com/isarandi/metrabs) is a metric-scale 3D human pose estimator that predicts **2D and 3D poses simultaneously** in a single forward pass. Unlike the traditional two-step pipeline (2D detection → 3D lifting), MeTRAbs directly outputs **metric 3D coordinates** (in millimeters) from each camera view independently.
+
+**Why this matters for calibration:** since each camera produces its own 3D skeleton in metric scale, we can use **Procrustes alignment** to find the relative rotation and translation between cameras directly from their 3D predictions — without needing an intermediate triangulation step. This gives a much better initialization for bundle adjustment compared to 2D-only methods.
+
+We use the **`bml_movi_87`** skeleton (87 joints from the [BML MoVi](https://www.biomotionlab.ca/movi/) dataset). The full 87-joint 2D and 3D predictions are stored for each camera, and a **26-joint calibration subset** is extracted for the calibration pipeline:
 
 - **20 virtual joint centers** (head, thorax, pelvis, hips, shoulders, elbows, wrists, hands, knees, ankles, feet)
 - **2 anatomical landmarks** (backneck, sternum)
 - **4 foot markers** (left/right heel, left/right toe)
 
-These 26 joints are connected by **27 bones** covering the full body including a 4-segment spine and articulated feet — significantly richer than OpenPose's 12 bones. The mapping from `bml_movi_87` to our 26-joint format is defined in `util.py` (`METRABS_BML87_INDICES`).
+These 26 joints are connected by **27 bones** covering the full body including a 4-segment spine and articulated feet — significantly richer than OpenPose's 12 bones. The mapping from `bml_movi_87` to our 26-joint format is defined in `util.py` (`METRABS_BML87_INDICES`). Additionally, a **Halpe26 conversion** is generated for backward compatibility with the scaling step.
 
-MeTRAbs provides **direct metric 3D** predictions per camera, enabling **Procrustes alignment** as initialization for the linear calibration. This gives a much better starting point than purely 2D-based methods.
+**Temporal smoothing:** a Savitzky-Golay filter is applied to both 2D and 3D trajectories to reduce frame-to-frame jitter on valid detections.
 
 | Property | Value |
 |----------|-------|
 | Model | `metrabs_l` (EffNetV2-L backbone) via TensorFlow Hub |
 | Input skeleton | `bml_movi_87` (87 joints) |
-| Output skeleton | 26-joint calibration format (27 bones) |
+| Stored output | Full 87-joint 2D + 3D, 26-joint calib subset, Halpe26 2D |
 | 3D output | Metric (millimeters), per-camera coordinate frame |
-| Conda env | `metrabs` (Python 3.10, TensorFlow 2.x) |
+| Architecture | Single-step: image → 2D + 3D simultaneously |
+| Conda env | `metrabs_opensim` (Python 3.10, TensorFlow 2.x) |
 | Speed | ~2 min/camera on GPU |
 
-### RTMPose + VideoPose3D
+### RTMPose + VideoPose3D — Two-step 2D→3D lifting
 
-The classic path uses [RTMPose](https://github.com/Tau-J/rtmlib) (via `rtmlib`) for 2D detection in **Halpe26** format, then [VideoPose3D](https://github.com/facebookresearch/VideoPose3D) for temporal 2D→3D lifting. The 3D skeleton uses **25 OpenPose joints** with **12 bones**.
+The classic two-step path uses [RTMPose](https://github.com/Tau-J/rtmlib) (via `rtmlib`) for **2D keypoint detection** in **Halpe26** format, then [VideoPose3D](https://github.com/facebookresearch/VideoPose3D) for **temporal 2D→3D lifting**. The lifting model uses temporal context across frames to estimate 3D poses, but the output is in **relative scale** (not metric), so a scaling step is required after calibration.
+
+This path is still fully functional and can be useful when MeTRAbs is not available or as a comparison baseline.
 
 | Property | Value |
 |----------|-------|
@@ -59,16 +73,22 @@ The classic path uses [RTMPose](https://github.com/Tau-J/rtmlib) (via `rtmlib`) 
 | 3D model | VideoPose3D (`pretrained_h36m_detectron_coco.bin`) |
 | Output skeleton | 25 OpenPose joints (12 bones) |
 | 3D output | Relative scale (not metric) |
+| Architecture | Two-step: image → 2D keypoints → temporal 3D lifting |
 | Conda env | `human_calib` (Python 3.8, PyTorch 1.13) |
 
-### Comparison on demo dataset (4 cameras, 100 frames)
+### Comparison
 
 | | MeTRAbs | RTMPose + VP3D |
 |---|---|---|
+| **Architecture** | **1 step** (direct 3D per camera) | **2 steps** (2D detection + 3D lifting) |
+| **Joints / Bones** | 87 full (26 calib) / 27 bones | 25 joints / 12 bones |
+| **3D scale** | Metric (mm) | Relative |
+| **Calibration init** | Procrustes alignment (from 3D) | Bone collinearity (from 2D) |
 | Linear calibration MRE | 7.8 px | 152.2 px |
 | After Bundle Adjustment | **3.5 px** | **8.5 px** |
-| Procrustes init | Yes | No |
 | Scale factor | 0.001 (metric 3D in mm) | 30.9 (arbitrary units) |
+
+*Results on demo dataset (4 cameras, 100 frames).*
 
 ---
 
@@ -103,22 +123,21 @@ Key packages: Python 3.8, PyTorch 1.13 (CUDA 11.7), scipy, opencv, rtmlib, numba
 MeTRAbs requires a **separate** conda environment (Python 3.10, TensorFlow) because it is incompatible with the PyTorch-based `human_calib` environment. The pipeline handles the environment switching automatically via `conda run`.
 
 ```bash
-# Clone the MeTRAbs fork (dev branch)
+# Clone the MeTRAbs-to-OpenSim repository
 cd ..
-git clone -b dev https://github.com/flodelaplace/metrabs.git
-cd metrabs
+git clone https://github.com/flodelaplace/Metrabs_to_Opensim.git
+cd Metrabs_to_Opensim
 
-# Create the environment and install
+# Create the environment
 conda env create -f environment.yml
-conda activate metrabs
-pip install -e .
+conda activate metrabs_opensim
 
 cd ../lab-camera-dynamic-calibrator
 ```
 
-> The MeTRAbs model (`metrabs_l`) is downloaded automatically from TensorFlow Hub on first run (~1.5 GB). No manual download needed.
+> The MeTRAbs model (`metrabs_l`, ~700 MB) is downloaded automatically from TensorFlow Hub on first run and cached in `~/.cache/tfhub_modules/`. No manual download needed.
 
-See the [MeTRAbs fork repository](https://github.com/flodelaplace/metrabs/tree/dev) for detailed installation and troubleshooting.
+See the [Metrabs_to_Opensim repository](https://github.com/flodelaplace/Metrabs_to_Opensim) for detailed installation, troubleshooting, and standalone single-camera usage.
 
 ### VideoPose3D setup (RTMPose path only)
 
@@ -262,27 +281,43 @@ rm -rf output/my_session/noise_1_0/2d_joint output/my_session/noise_1_0/3d_joint
 
 ## 4. Technical Details
 
-### Calibration Pipeline
+### Linear Calibration
 
-**Linear calibration** (`calib_linear.py`) computes initial extrinsic parameters:
-- With MeTRAbs: **Procrustes alignment** between per-camera 3D skeletons gives R, t directly
-- With RTMPose: uses bone orientation collinearity constraints (original method from the paper)
-- Data is processed in chunks of 1000 frames, the chunk with lowest MRE is selected
-- **Visibility filter**: only frames where >= 2/3 of cameras see the person are used
+**Linear calibration** (`calib_linear.py` + `calib_linear.sh`) computes initial extrinsic parameters. The approach differs significantly depending on the pose engine:
 
-**Bundle Adjustment** (`ba.py`) refines the extrinsics by jointly optimizing:
-1. **NLL** — weighted 2D reprojection error (main objective)
-2. **var3d** — bone direction consistency across cameras
-3. **varbone** — bone length variance across frames (regularizer)
+**With MeTRAbs — Procrustes alignment:**
+Since MeTRAbs gives a metric 3D skeleton per camera, we can directly align skeletons between cameras using [Procrustes analysis](https://en.wikipedia.org/wiki/Procrustes_analysis) (Umeyama method). Camera 0 defines the world frame; for each other camera, the algorithm finds R, t, s that align its 3D skeleton to camera 0's. This produces a strong initialization because the per-camera 3D is already in metric scale — the Procrustes residual is typically a few mm. Triggered automatically when 26 joints are detected.
+
+**With RTMPose — Collinearity constraints:**
+Uses bone orientation collinearity and coplanarity constraints from 2D projections (original method from the paper). This requires solving a larger linear system and doesn't benefit from metric 3D data, so the initial MRE is much higher.
+
+**Chunk-based processing** (`calib_linear.sh`):
+- Data is split into chunks of **1000 frames**
+- Each chunk is independently calibrated (with its own visibility filter and Procrustes/linear solve)
+- All chunks are evaluated by MRE using `evaluate_calibration.py`
+- The chunk with the **lowest MRE** is selected as the final linear calibration result
+
+**Visibility filter**: within each chunk, only frames where the person is visible from >= 2/3 of cameras (rounded up) are used. Falls back to >= 2 cameras if too few frames pass the stricter threshold.
+
+### Bundle Adjustment
+
+**Bundle Adjustment** (`ba.py`) refines the extrinsics by jointly minimizing a composite cost function with `scipy.least_squares` using the **Trust Region Reflective (TRF)** method:
+
+1. **NLL** — weighted 2D reprojection error (main objective, confidence-weighted)
+2. **var3d** — bone direction consistency across cameras (weighted by lambda1)
+3. **varbone** — bone length variance across frames (weighted by lambda2, regularizer)
+
+A fourth term, **multiview3d** (penalizing divergence between per-camera 3D and triangulated 3D), is defined but **disabled** — the per-camera 3D from MeTRAbs is too noisy frame-to-frame and conflicts with the 2D reprojection objective, degrading results.
 
 Key BA features:
-- **Auto-balanced lambda2**: the bone regularization weight is automatically computed at each iteration so that the bone term contributes ~10% of the NLL term. This works correctly regardless of the pose engine.
-- **Jacobian sparsity**: a sparse Jacobian structure is provided to `scipy.least_squares`, giving 50–200x speedup on Jacobian computation.
-- **Live convergence plot**: a PNG is saved every 10s showing the cost reduction curve.
-- **2-pass optimization**: after the first pass, frames with reprojection error > 2x median are removed as outliers, then a second pass runs on the cleaned data.
-- **Convergence**: uses `ftol=xtol=gtol=1e-8` with `max_nfev=20000` (~2 min cap with sparsity).
+- **Auto-balanced lambda2**: at each iteration, lambda2 is recomputed so that the bone term contributes ~10% of the NLL energy (`target_ratio = 0.1`). When bone variance is negligible (< 1e-3, common with MeTRAbs metric 3D), lambda2 is set to **0** to avoid wasting optimization time. Lambda2 is also capped at 1000 to prevent extreme values.
+- **Jacobian sparsity**: a sparse Jacobian structure (`build_jac_sparsity`) is provided to `scipy.least_squares`, encoding which parameters affect which residuals. This avoids full dense finite-difference computation, giving **50–200x speedup**.
+- **Live convergence plot**: a PNG is saved every 10s showing the cost reduction curve with log-scale Y axis.
+- **2-pass optimization**: after the first pass, frames with per-frame reprojection error > **2x median** are removed as outliers, then a second pass runs on the cleaned data.
+- **Convergence**: uses `ftol=xtol=gtol=1e-7` with dynamic `max_nfev` scaled by problem size (60k–80k evaluations).
+- **OOM auto-retry** (`ba.sh`): if BA fails (e.g., out of memory), the script automatically retries with `frame_skip += 5`, up to a maximum of 60, reducing the number of frames until BA fits in memory.
 
-### MeTRAbs Quality Filtering
+### MeTRAbs Quality Filtering and Processing
 
 The MeTRAbs inference applies several quality filters before saving keypoints:
 
@@ -294,6 +329,16 @@ The MeTRAbs inference applies several quality filters before saving keypoints:
 | Out-of-bounds joints | < 10px from image edge | 2D confidence reduced to × 0.1 |
 
 The 3D confidence (`s3d`) uses the bounding box confidence only (not affected by OOB penalty), since MeTRAbs predicts full-body 3D even when 2D joints are clipped at the image edge.
+
+After filtering, a **Savitzky-Golay temporal smoothing** is applied to both 2D and 3D trajectories, reducing frame-to-frame jitter while preserving motion dynamics. Only frames with valid detections are smoothed.
+
+**Output directories** created by MeTRAbs inference:
+
+| Directory | Content |
+|-----------|---------|
+| `2d_joint/` | Full 87-joint `bml_movi_87` 2D poses |
+| `3d_joint/` | Full 87-joint `bml_movi_87` 3D poses (metric, mm) |
+| `2d_joint_halpe26/` | Halpe26-format 2D poses (for scaling compatibility) |
 
 ### Joint and Bone Definitions
 
@@ -331,13 +376,19 @@ Standard OpenPose body-25 format with joints: Nose, Neck, RShoulder, RElbow, RWr
 
 Step 7 (`scale_scene.py`) transforms the calibrated scene into a metric, gravity-aligned coordinate system:
 
-1. **Ground plane**: fitted from 6 foot keypoints (heels, toes, feet centers)
+1. **Ground plane**: fitted from foot keypoints (heels, toes, feet centers, and fifth metatarsals when available)
 2. **Vertical axis (Y)**: defined by head-to-feet vector (Y points down in OpenCV convention)
 3. **Horizontal axis (X)**: defined by left-heel → right-heel direction
 4. **Origin**: center of heels at ground level
 5. **Scale**: computed from `measured_skeleton_height / real_person_height`
 
-With MeTRAbs, the scaling uses the calib-26 joints directly (head=0, heels=22/23, toes=24/25, feet=20/21). With RTMPose, it uses the Halpe26 format.
+The joint format is **auto-detected** based on the number of joints in the 2D pose files:
+
+| Pose engine | Joints | Foot keypoints for ground plane | Joint source |
+|-------------|--------|---------------------------------|--------------|
+| MeTRAbs (87 joints detected) | `bml_movi_87` | **8 points**: heels, toes, foot centers, fifth metatarsals | `2d_joint/` |
+| MeTRAbs (26 joints detected) | `calib-26` | **6 points**: heels, toes, foot centers | `2d_joint/` |
+| RTMPose | Halpe26 | **6 points**: heels, big toes, small toes | `2d_joint_halpe26/` |
 
 ---
 
@@ -349,18 +400,21 @@ lab-camera-dynamic-calibrator/
 ├── metrabs_inference.py      # MeTRAbs pose extraction (bml_movi_87 → calib-26)
 ├── rtmlib_inference.py       # RTMPose 2D pose detection
 ├── inference.py / .sh        # VideoPose3D 3D lifting
-├── calib_linear.py / .sh     # Linear calibration + Procrustes init
-├── ba.py / .sh               # Bundle Adjustment with Jacobian sparsity
-├── scale_scene.py            # Metric scaling and gravity alignment
-├── evaluate_calibration.py   # MRE evaluation and visualization
-├── visualize_results.py      # 3D GIF rendering (auto-detects skeleton format)
-├── util.py                   # Joint/bone definitions, triangulation, projection
+├── calib_linear.py / .sh     # Linear calibration (Procrustes or collinearity) + chunking
+├── ba.py / .sh               # Bundle Adjustment with Jacobian sparsity + OOM auto-retry
+├── scale_scene.py            # Metric scaling and gravity alignment (auto-detects joint format)
+├── evaluate_calibration.py   # MRE evaluation, visualization, and TOML export
+├── visualize_results.py      # 3D GIF rendering (auto-detects skeleton: 87/26/25 joints)
+├── util.py                   # Joint/bone definitions (OP_BONE, METRABS_BONE, BML87_BONE), triangulation
 ├── argument.py               # CLI argument parsing
 ├── create_cameras_from_toml.py  # TOML → cameras JSON converter
 ├── my_dataset.py             # Dataset class for pose data
 ├── config/config.yaml        # Auto-generated session configuration
 ├── conda_linux.yaml          # Conda environment (human_calib)
 ├── setup_models.sh           # VideoPose3D model download
+├── utils/                    # Utility scripts
+│   ├── convert_calib_rotation.py  # Convert calibration rotation formats
+│   └── rotate_video.py       # Video rotation helper
 ├── demo/                     # Demo dataset (4 cameras, 100 frames)
 ├── input/                    # Place your calibration sessions here
 ├── output/                   # Calibration results
@@ -377,8 +431,8 @@ lab-camera-dynamic-calibrator/
 | High MRE on one camera | Bad intrinsics (distortion) | Check distortion coefficients: k1/k2 should be in [-2, 2]. Values > 5 are likely wrong. |
 | BA makes MRE worse | Regularization too strong | Auto-balanced lambda should handle this. If not, check if `objfun_multiview3d` is disabled. |
 | `No valid orientations` | Too few visible frames | Lower `--conf_threshold` or use a different frame range where person is more visible. |
-| MeTRAbs import error | Wrong conda env | MeTRAbs runs in `metrabs` env; `calibrate.sh` handles this via `conda run -n metrabs`. |
-| OOM during BA | Too many frames | Pipeline auto-retries with larger `frame_skip`. |
+| MeTRAbs import error | Wrong conda env | MeTRAbs runs in `metrabs_opensim` env; `calibrate.sh` handles this via `conda run -n metrabs_opensim`. |
+| OOM during BA | Too many frames | `ba.sh` auto-retries with `frame_skip += 5` (up to max 60) to reduce memory usage. |
 | Poses not re-extracted | Cache hit | Delete `output/*/noise_1_0/2d_joint` and `3d_joint` to force re-extraction. |
 | Same intrinsics work better than individual ones | Poor per-camera calibration | If cameras are the same model, try shared intrinsics as baseline. |
 
@@ -402,7 +456,7 @@ This project builds upon [Extrinsic Camera Calibration From a Moving Person](htt
 
 **MeTRAbs** — Metric-Scale Truncation-Robust Heatmaps for Absolute 3D Human Pose Estimation:
 - Original: [github.com/isarandi/metrabs](https://github.com/isarandi/metrabs)
-- Fork used in this project: [github.com/flodelaplace/metrabs](https://github.com/flodelaplace/metrabs/tree/dev)
+- MeTRAbs-to-OpenSim pipeline (used in this project): [github.com/flodelaplace/Metrabs_to_Opensim](https://github.com/flodelaplace/Metrabs_to_Opensim)
 
 **RTMPose** — Real-Time Multi-Person Pose Estimation:
 - [RTMLib](https://github.com/Tau-J/rtmlib) — Part of the [MMPose](https://github.com/open-mmlab/mmpose) ecosystem

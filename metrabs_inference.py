@@ -6,13 +6,13 @@ and save them in the 26-joint calibration format expected by the pipeline.
 
 This script is designed to run in the 'metrabs' conda environment (Python 3.10,
 TensorFlow) and is called from calibrate.sh via:
-    conda run --no-banner -n metrabs python metrabs_inference.py ...
+    conda run --no-banner -n metrabs_opensim python metrabs_inference.py ...
 
 It replaces both rtmlib_inference.py (2D) and inference.py (3D lifting) in a
 single step with better accuracy.
 
 Usage:
-    conda run --no-banner -n metrabs python metrabs_inference.py \
+    conda run --no-banner -n metrabs_opensim python metrabs_inference.py \
         --video_dir  ./my_videos \
         --calib_toml ./Calib_scene.toml \
         --output_dir ./data/A001_P001_G001 \
