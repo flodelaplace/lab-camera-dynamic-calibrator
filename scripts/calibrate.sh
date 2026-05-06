@@ -21,6 +21,13 @@
 #   --conf_threshold <t>: Confidence threshold for 2D keypoints (default: 0.5).
 #   --save_video      : Generate and save an overlay video of 2D pose estimation.
 #   --pose_engine <e> : 'rtmpose' (default) or 'metrabs'. MeTRAbs replaces RTMPose+VideoPose3D.
+#   --no_auto_outlier_drop : Disable per-camera outlier-frame detection (default: ON).
+#   --outlier_abs_px <p>   : Absolute reprojection threshold for outliers (default: 50).
+#   --outlier_x_median <m> : Multiplier above per-cam median (default: 5). A frame is
+#                            dropped when its mean reproj error exceeds BOTH thresholds.
+#   --ref_cam <id>         : 1-indexed CAM ID to force as Procrustes reference for
+#                            the linear init (default: auto-select the camera with
+#                            the lowest mean Procrustes residual).
 # =============================================================================
 
 set -e  # Stop on error
@@ -44,6 +51,10 @@ FRAME_SKIP=10
 CONF_THRESHOLD=0.5
 SAVE_VIDEO=""
 POSE_ENGINE="rtmpose"
+AUTO_OUTLIER_DROP="true"
+OUTLIER_ABS_PX=50
+OUTLIER_X_MEDIAN=5
+REF_CAM=""
 
 # --- Parse arguments ---
 # Positional arguments
@@ -67,6 +78,11 @@ while [[ "$#" -gt 0 ]]; do
         --conf_threshold) CONF_THRESHOLD="$VAL"; shift ;;
         --save_video) SAVE_VIDEO="--save_video" ;;
         --pose_engine) POSE_ENGINE="$VAL"; shift ;;
+        --auto_outlier_drop) AUTO_OUTLIER_DROP="true" ;;
+        --no_auto_outlier_drop) AUTO_OUTLIER_DROP="false" ;;
+        --outlier_abs_px) OUTLIER_ABS_PX="$VAL"; shift ;;
+        --outlier_x_median) OUTLIER_X_MEDIAN="$VAL"; shift ;;
+        --ref_cam) REF_CAM="$VAL"; shift ;;
         cuda|cpu) DEVICE="$PARAM" ;;
         lightweight|balanced|performance) MODE="$PARAM" ;;
         *) echo "Unknown parameter passed: $PARAM"; exit 1 ;;
@@ -320,7 +336,11 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo "  → Running linear calibration by chunks..."
 
 # Data are already cropped, just calibrate on all locally available frames (index 0 to N-1)
-python3 "${SCRIPT_DIR}/run_calib_linear.py" --conf_threshold ${CONF_THRESHOLD} "${OUTPUT_DIR}" ${AID} ${PID} ${GID} ${SUBSET} ${FRAME_SKIP} ${DATASET}
+REF_CAM_ARG=""
+if [ -n "${REF_CAM}" ]; then
+    REF_CAM_ARG="--ref_cam ${REF_CAM}"
+fi
+python3 "${SCRIPT_DIR}/run_calib_linear.py" --conf_threshold ${CONF_THRESHOLD} ${REF_CAM_ARG} "${OUTPUT_DIR}" ${AID} ${PID} ${GID} ${SUBSET} ${FRAME_SKIP} ${DATASET}
 
 # Verify linear calibration result exists
 FINAL_LINEAR_JSON="${OUTPUT_DIR}/results/linear_1_0.json"
@@ -329,6 +349,29 @@ if [ ! -f "${FINAL_LINEAR_JSON}" ]; then
     echo "Aborting bundle adjustment. Please check run_calib_linear.py output and logs."
     exit 1
 fi
+
+# --- Step 5a.5: Auto-detect outlier frames per camera, retry linear if any --
+if [ "$AUTO_OUTLIER_DROP" = "true" ]; then
+    echo ""
+    echo "  → Detecting outlier frames (per camera)..."
+    OUTLIER_OUT=$(python3 "${REPO_ROOT}/scripts/detect_outlier_frames.py" \
+        --prefix "${OUTPUT_DIR}" \
+        --subset "${SUBSET}" \
+        --aid ${AID} --pid ${PID} --gid ${GID} \
+        --calib linear_1_0 \
+        --video_dir "${VIDEO_DIR}" \
+        --abs_px ${OUTLIER_ABS_PX} \
+        --x_median ${OUTLIER_X_MEDIAN} \
+        --conf_threshold ${CONF_THRESHOLD})
+    echo "${OUTLIER_OUT}"
+    NEW_DROPS=$(echo "${OUTLIER_OUT}" | grep "^NEW_DROPS=" | tail -1 | cut -d'=' -f2)
+    if [ -n "${NEW_DROPS}" ] && [ "${NEW_DROPS}" -gt 0 ]; then
+        echo ""
+        echo "  → Re-running linear calibration on cleaned data (${NEW_DROPS} outliers dropped)..."
+        python3 "${SCRIPT_DIR}/run_calib_linear.py" --conf_threshold ${CONF_THRESHOLD} ${REF_CAM_ARG} "${OUTPUT_DIR}" ${AID} ${PID} ${GID} ${SUBSET} ${FRAME_SKIP} ${DATASET}
+    fi
+fi
+
 echo "  → Bundle Adjustment (linear)..."
 python3 "${SCRIPT_DIR}/run_ba.py" "${OUTPUT_DIR}" ${AID} ${PID} ${GID} ${FRAME_SKIP} ${LAMBDA1} ${LAMBDA2} linear_1_0 ${DATASET} false true ${CONF_THRESHOLD}
 

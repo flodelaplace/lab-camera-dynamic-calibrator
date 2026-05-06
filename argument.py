@@ -50,7 +50,10 @@ def parse_args(predefined_args=None):
     parser.add_argument("--device", type=str, default="cuda", choices=["cuda", "cpu"], help="Device to use (cuda or cpu)")
     parser.add_argument("--pose_engine", type=str, default="rtmpose", choices=["rtmpose", "metrabs"], help="Pose estimation engine: rtmpose (2D+lifting) or metrabs (direct 3D)")
     parser.add_argument("--conf_threshold", type=float, default=0.5, help="Confidence threshold for 2D keypoints")
-    
+    parser.add_argument("--ref_cam", type=int, default=None,
+                        help="1-indexed CAM ID to use as Procrustes reference. "
+                             "If unset, auto-select the camera with the lowest mean Procrustes residual.")
+
     # Arguments for chunking
     parser.add_argument("--frame_start", type=int, default=None, help="Start frame for chunk processing.")
     parser.add_argument("--frame_end", type=int, default=None, help="End frame for chunk processing.")

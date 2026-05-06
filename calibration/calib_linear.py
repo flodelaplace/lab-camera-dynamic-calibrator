@@ -162,55 +162,86 @@ def procrustes_align(X_src, X_tgt):
     return R, t, s
 
 
-def calib_procrustes(p3d_CxNxJx3, s3d_CxNxJ, K_all, p2d_CxNxJx2, s2d_CxNxJ, conf_threshold=0.5):
+def _procrustes_align_to_ref(p3d_CxNxJx3, s3d_CxNxJ, ref_idx, verbose=False):
+    """Align all cameras to ``ref_idx`` via Procrustes. No triangulation.
+
+    Returns:
+        R_list, t_list (length C, ref entry is identity/zero), per_cam_residuals (dict).
+    """
+    C = p3d_CxNxJx3.shape[0]
+    mask = s3d_CxNxJ > 0
+    R_list = [None] * C
+    t_list = [None] * C
+    R_list[ref_idx] = np.eye(3)
+    t_list[ref_idx] = np.zeros(3)
+
+    ref_3d = p3d_CxNxJx3[ref_idx]
+    residuals = {}
+
+    for c in range(C):
+        if c == ref_idx:
+            continue
+        cam_3d = p3d_CxNxJx3[c]
+        joint_mask = mask[ref_idx] & mask[c]
+        valid_idx = np.where(joint_mask.flatten())[0]
+
+        if len(valid_idx) < 10:
+            if verbose:
+                print(f"  WARN: Camera {c} — only {len(valid_idx)} shared points, using identity")
+            R_list[c] = np.eye(3)
+            t_list[c] = np.zeros(3)
+            continue
+
+        pts_ref = ref_3d.reshape(-1, 3)[valid_idx]
+        pts_cam = cam_3d.reshape(-1, 3)[valid_idx]
+        R, t, s = procrustes_align(pts_ref, pts_cam)
+        R_list[c] = R
+        t_list[c] = t
+        residual = float(np.mean(np.linalg.norm(pts_cam - (s * (R @ pts_ref.T).T + t), axis=1)))
+        residuals[c] = (residual, float(s))
+        if verbose:
+            print(f"  Camera {c}: Procrustes residual = {residual:.2f}mm, scale = {s:.4f}")
+
+    return R_list, t_list, residuals
+
+
+def calib_procrustes(p3d_CxNxJx3, s3d_CxNxJ, K_all, p2d_CxNxJx2, s2d_CxNxJ,
+                     conf_threshold=0.5, ref_cam_idx=None):
     """Estimate extrinsic calibration using Procrustes alignment of per-camera 3D poses.
 
-    Uses camera 0 as reference frame. For each other camera, aligns its 3D skeleton
-    to camera 0's skeleton to get relative R, t.
+    The chosen reference camera's 3D defines the world frame. All other cameras are
+    aligned to it via rigid+scale Procrustes.
+
+    Args:
+        ref_cam_idx: 0-based array index of the reference camera. If ``None``, the
+            reference is auto-selected as the camera with the lowest mean residual
+            across the other (C-1) alignments.
 
     Returns:
         R_w2c (C, 3, 3), t_w2c (C, 3, 1), X_world (M, 3)
     """
     C, N, J, _ = p3d_CxNxJx3.shape
-    mask = s3d_CxNxJ > 0  # (C, N, J)
 
-    # Reference camera is camera 0 — its 3D defines the world frame
-    R_w2c_list = [np.eye(3)]
-    t_w2c_list = [np.zeros(3)]
+    if ref_cam_idx is None:
+        print("  Auto-selecting Procrustes reference camera...")
+        scores = []
+        for cand in range(C):
+            _, _, residuals = _procrustes_align_to_ref(p3d_CxNxJx3, s3d_CxNxJ, cand)
+            mean_res = float(np.mean([r for r, _ in residuals.values()])) if residuals else float('inf')
+            scores.append((cand, mean_res))
+        scores.sort(key=lambda x: x[1])
+        ref_cam_idx = scores[0][0]
+        ranking = ", ".join(f"cam_idx={c} ({r:.1f}mm)" for c, r in scores)
+        print(f"    Mean Procrustes residual per candidate: {ranking}")
+        print(f"    -> Selected cam_idx={ref_cam_idx} ({scores[0][1]:.2f}mm)")
+    else:
+        print(f"  Using forced Procrustes reference: cam_idx={ref_cam_idx}")
 
-    ref_3d = p3d_CxNxJx3[0]  # (N, J, 3) — reference camera's 3D
+    R_list, t_list, _ = _procrustes_align_to_ref(p3d_CxNxJx3, s3d_CxNxJ, ref_cam_idx, verbose=True)
 
-    for c in range(1, C):
-        cam_3d = p3d_CxNxJx3[c]  # (N, J, 3)
+    R_w2c = np.array(R_list)
+    t_w2c = np.array(t_list).reshape(-1, 3, 1)
 
-        # Find frames+joints visible in both cameras
-        joint_mask = mask[0] & mask[c]  # (N, J)
-        valid_idx = np.where(joint_mask.flatten())[0]
-
-        if len(valid_idx) < 10:
-            print(f"  WARN: Camera {c} — only {len(valid_idx)} shared points, using identity")
-            R_w2c_list.append(np.eye(3))
-            t_w2c_list.append(np.zeros(3))
-            continue
-
-        pts_ref = ref_3d.reshape(-1, 3)[valid_idx]
-        pts_cam = cam_3d.reshape(-1, 3)[valid_idx]
-
-        # Procrustes: find R, t, s such that pts_cam ≈ s * R @ pts_ref + t
-        # This gives us R_cam_from_ref and t_cam_from_ref
-        R, t, s = procrustes_align(pts_ref, pts_cam)
-
-        # R_w2c[c] = R (world=ref frame -> camera c frame)
-        R_w2c_list.append(R)
-        t_w2c_list.append(t)
-
-        residual = np.mean(np.linalg.norm(pts_cam - (s * (R @ pts_ref.T).T + t), axis=1))
-        print(f"  Camera {c}: Procrustes residual = {residual:.2f}mm, scale = {s:.4f}")
-
-    R_w2c = np.array(R_w2c_list)
-    t_w2c = np.array(t_w2c_list).reshape(-1, 3, 1)
-
-    # Triangulate world points using the estimated extrinsics
     joint_mask_2d = s2d_CxNxJ > conf_threshold
     P_list = []
     for c in range(C):
@@ -232,8 +263,9 @@ def calib_procrustes(p3d_CxNxJx3, s3d_CxNxJ, K_all, p2d_CxNxJx2, s2d_CxNxJ, conf
 
 
 def main_linear(
-    dirname, gid, aid, pid, bone_idx, joint_idx, bObs_mask, *, 
-    frame_start=None, frame_end=None, frame_skip=1, conf_threshold=0.5
+    dirname, gid, aid, pid, bone_idx, joint_idx, bObs_mask, *,
+    frame_start=None, frame_end=None, frame_skip=1, conf_threshold=0.5,
+    ref_cam=None,
 ):
 
     if bObs_mask:
@@ -313,14 +345,22 @@ def main_linear(
 
     print(f"Processing chunk: vc={vc.shape}, n={n.shape}")
 
-    # Try Procrustes first if we have good 3D data (MeTRAbs, 26 joints)
+    # Try Procrustes first if we have good 3D data (MeTRAbs: 26- or 87-joint skeletons)
     n_joints = p3d.shape[2]
-    use_procrustes = (n_joints == 26 and np.any(s3d > 0))
+    use_procrustes = (n_joints in (26, 87) and np.any(s3d > 0))
 
     if use_procrustes:
         print("  Using Procrustes initialization (MeTRAbs 3D available)")
+        # Convert user-supplied 1-indexed CAM ID to 0-based array index
+        ref_cam_idx = None
+        if ref_cam is not None:
+            try:
+                ref_cam_idx = list(CAMID).index(ref_cam)
+                print(f"  --ref_cam {ref_cam} -> array index {ref_cam_idx} (CAMID={list(CAMID)})")
+            except ValueError:
+                print(f"  WARN: --ref_cam {ref_cam} not in CAMID {list(CAMID)}; falling back to auto-select")
         R_w2c_est, t_w2c_est, p3d_w_est = calib_procrustes(
-            p3d, s3d, K, p2d, s2d, conf_threshold
+            p3d, s3d, K, p2d, s2d, conf_threshold, ref_cam_idx=ref_cam_idx
         )
         p3d_w_est_flat = p3d_w_est.reshape(-1, 3)
         # Remove NaN rows for reprojection error calculation
@@ -395,7 +435,8 @@ if __name__ == "__main__":
         frame_start=args.frame_start,
         frame_end=args.frame_end,
         frame_skip=args.frame_skip,
-        conf_threshold=args.conf_threshold
+        conf_threshold=args.conf_threshold,
+        ref_cam=args.ref_cam,
     )
 
     if R is not None:

@@ -41,6 +41,8 @@ def parse_args(argv):
     p.add_argument("--start_frame", type=int, default=None)
     p.add_argument("--end_frame", type=int, default=None)
     p.add_argument("--conf_threshold", type=float, default=0.5)
+    p.add_argument("--ref_cam", type=int, default=None,
+                   help="1-indexed CAM ID to force as Procrustes reference (default: auto-select)")
     p.add_argument("prefix")
     p.add_argument("aid", type=int)
     p.add_argument("pid", type=int)
@@ -105,6 +107,8 @@ def run_chunk(args, frame_start, frame_end, chunk_id, total_chunks):
         "--chunk_id", str(chunk_id),
         "--conf_threshold", str(args.conf_threshold),
     ]
+    if args.ref_cam is not None:
+        cmd.extend(["--ref_cam", str(args.ref_cam)])
     subprocess.run(cmd, check=False)
 
 

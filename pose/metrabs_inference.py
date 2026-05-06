@@ -209,6 +209,16 @@ def process_video(video_path, model, skeleton, camera, start_frame=None, end_fra
     n_frames = ef - sf + 1
     print(f"  Video: {os.path.basename(video_path)} ({imshape[1]}x{imshape[0]}, frames {sf}-{ef})")
 
+    # Sidecar: deterministic list of black-filler indices (from pipeline_sync.py)
+    sidecar_path = os.path.splitext(video_path)[0] + '.dropped.json'
+    dropped_set = set()
+    if os.path.exists(sidecar_path):
+        with open(sidecar_path) as _f:
+            _meta = json.load(_f)
+        dropped_set = {int(i) for i in _meta.get('dropped_frame_indices', [])}
+        in_range = sum(1 for i in dropped_set if sf <= i <= ef)
+        print(f"  Sidecar: {in_range}/{len(dropped_set)} dropped indices in range [{sf},{ef}] -> {os.path.basename(sidecar_path)}")
+
     # Generator that yields frames one by one (no bulk RAM allocation)
     def frame_generator():
         rd = imageio.get_reader(video_path, 'ffmpeg')
@@ -230,6 +240,7 @@ def process_video(video_path, model, skeleton, camera, start_frame=None, end_fra
     all_confidences = []
     frame_indices = list(range(sf, sf + n_frames))
     n_dark = 0
+    n_drop = 0
 
     n_batches = int(np.ceil(n_frames / batch_size))
     for frame_batch in tqdm(frame_ds, total=n_batches, desc="  MeTRAbs inference"):
@@ -242,7 +253,17 @@ def process_video(video_path, model, skeleton, camera, start_frame=None, end_fra
         for i, (boxes, poses3d, poses2d) in enumerate(
             zip(pred['boxes'], pred['poses3d'], pred['poses2d'])
         ):
-            # --- Dark/black frame detection ---
+            current_idx = sf + len(all_poses3d)
+
+            # Sidecar filter (authoritative — deterministic drop list)
+            if current_idx in dropped_set:
+                all_poses3d.append(None)
+                all_poses2d.append(None)
+                all_confidences.append(0.0)
+                n_drop += 1
+                continue
+
+            # Brightness fallback (catches dark frames on videos without sidecar)
             frame_brightness = float(tf.reduce_mean(
                 tf.cast(frame_batch[i], tf.float32)
             ).numpy())
@@ -268,8 +289,10 @@ def process_video(video_path, model, skeleton, camera, start_frame=None, end_fra
             all_poses2d.append(p2d_best)
             all_confidences.append(conf)
 
+    if n_drop > 0:
+        print(f"  Filtered {n_drop}/{n_frames} frames via sidecar")
     if n_dark > 0:
-        print(f"  Filtered {n_dark}/{n_frames} dark frames")
+        print(f"  Filtered {n_dark}/{n_frames} dark frames (brightness fallback)")
 
     return frame_indices, all_poses3d, all_poses2d, all_confidences
 

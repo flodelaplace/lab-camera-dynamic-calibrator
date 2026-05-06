@@ -371,9 +371,20 @@ BML87_BONE_SUB = mk_bone_sub(BML87_BONE, BML87_KEY_SUB)
 
 
 def get_bone_config(n_joints):
-    """Return (bone_array, key_sub) based on the detected number of joints."""
+    """Return (bone_array, key_sub) based on the detected number of joints.
+
+    For bml_movi_87, the ~60 "virtual" joints (sternum, clavicle, umbilicus,
+    lbreast, lfirstmetatarsal, …) are linear combinations of the 26 main joints
+    inside MeTRAbs' regression head, so bones that touch them have constant
+    length by construction → zero variance, rank-deficient orientation
+    constraints, and broken `lambda2` auto-balancing. We therefore use the
+    27-bone METRABS topology remapped onto the 87-joint index space.
+    """
     if n_joints == 87:
-        return BML87_BONE, BML87_KEY_SUB
+        idx_87 = np.array(METRABS_BML87_INDICES)
+        bone_87 = idx_87[METRABS_BONE]
+        key_sub_87 = np.sort(np.unique(bone_87.flatten()))
+        return bone_87, key_sub_87
     if n_joints == 26:
         return METRABS_BONE, METRABS_KEY_SUB
     return OP_BONE, OP_KEY_SUB
