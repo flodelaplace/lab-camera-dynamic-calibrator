@@ -113,3 +113,6 @@ output/*
 *.log
 tmp_vis.ipynb
 tmp.sh
+
+# Windows alternate-data-stream metadata (created on WSL when copying from Windows)
+*:Zone.Identifier

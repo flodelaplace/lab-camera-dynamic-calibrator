@@ -11,6 +11,12 @@ In short, MeTRAbs collapses the 2D detection + 3D lifting into a **single forwar
 
 ![Overview camera extrinsics](img/Graphical_abstract_lab_camera_dynamic_calibrator_metrabs.png)
 
+### What the final output looks like
+
+![Final 3D visualization](img/visu_3d_FINAL.gif)
+
+*Light-theme 3D viz with live overlays: mean MRE in the title, per-camera MRE values below, and a top-left card showing the running count of visible cameras, triangulated joints, and the current frame's reprojection error (color-coded green/orange/red).*
+
 ---
 
 ## Pipeline Overview

@@ -2,113 +2,125 @@
 
 This guide explains how to calibrate camera extrinsics from your own videos using this pipeline.
 
-### 1. Prepare Your Data
+### 1. Prepare your data
 
-1. Place your synchronized videos (e.g., `.mp4`, `.avi`, `.mov`) in a directory. Ensure that the cameras are fixed and the subject is moving across the capture volume.
-2. Prepare a `Calib.toml` file containing your camera names and their intrinsic parameters, matching the exact format used by Pose2Sim.
+1. Place your synchronized videos (`.mp4`, `.avi`, `.mov`) in a directory. Cameras must be static; the subject must move across the capture volume.
+2. Provide a `Calib_scene.toml` file with intrinsic parameters per camera, matching the [Pose2Sim](https://github.com/perfanalytics/pose2sim) format.
 
-*(You can use the provided `demo/` folder to test the pipeline right away. It contains 4 synchronized videos and a `Calib_scene.toml` file).*
+> ⚠ Intrinsic quality is the #1 driver of final MRE. Distortion coefficients k1, k2 above ~5 in absolute value are almost certainly wrong — re-calibrate that camera before continuing.
 
-### 2. Run the Full Calibration Pipeline
+*(A ready-to-run `demo/` folder is provided: 4 synchronized videos + `Calib_scene.toml`.)*
 
-We provide an automated script `scripts/calibrate.sh` that chains all the necessary steps: 2D pose extraction, 3D lifting, linear calibration, bundle adjustment, and real-world metric scaling.
+Optional but useful: a `<video>.dropped.json` sidecar next to each video, listing absolute frame indices that should be ignored everywhere (corrupted / black frames). The auto outlier-frame drop step also writes these automatically — see the main README for details.
 
-**Example using the demo dataset:**
+### 2. Run the full pipeline
+
+`scripts/calibrate.sh` orchestrates the 7-step pipeline (pose extraction → intrinsics loading → linear init → auto outlier-frame drop → BA → MRE evaluation → scaling).
+
+**Recommended: MeTRAbs path** (direct metric 3D, Procrustes init, much higher accuracy):
 
 ```bash
 bash scripts/calibrate.sh \
-    "demo/" \
-    "demo/Calib_scene.toml" \
-    "./output/demo_calibration" \
-    "cuda" \
-    "balanced" \
-    --height 1.80 \
-    --ref_frame 5 \
-    --frame_skip 10
+    demo \
+    demo/Calib_scene.toml \
+    output/demo_metrabs \
+    cuda balanced \
+    --pose_engine metrabs \
+    --height 1.78 \
+    --ref_frame 5
 ```
 
-#### Arguments explained:
-1. `"demo/"` : Path to the folder containing your synchronized videos.
-2. `"demo/Calib_scene.toml"` : Path to your initial intrinsics TOML file.
-3. `"./output/demo_calibration"` : *(Optional)* Output directory.
-4. `"cuda"` : *(Optional)* Compute device (`cuda` or `cpu`).
-5. `"balanced"` : *(Optional)* RTMPose model size (`lightweight`, `balanced`, or `performance`).
+**RTMPose + VideoPose3D path** (legacy two-step, kept for comparison):
 
-#### Optional Flags for Scaling & Cropping:
-* `--height 1.80` : The real-world height of the subject in meters. Used to scale the final extrinsics to true metric coordinates.
-* `--ref_frame 5` : A specific frame where the subject is standing straight, feet on the ground. This is used to re-orient the coordinate system (Y-axis vertical, XZ-plane on the ground).
-* `--start_frame` & `--end_frame` : Only process a specific segment of the video. Highly recommended if your videos are long.
-* `--frame_skip` : Interval between frames used for calibration (default is 10). Increase it for faster calibration or if the person moves slowly.
-
-### 3. Check the Results
-
-Once the script finishes, it will generate a summary of the Mean Reprojection Error (MRE) for each optimization step. 
-
-You can find all outputs in your output directory (`output/demo_calibration/results/`):
-* **`Calib_scene_calibrated.toml`** : The final calibrated intrinsic and extrinsic parameters, ready to be used in Pose2Sim or OpenCap.
-* **`camera/visu_3d_FINAL.gif`** : A 3D animation of the triangulated skeleton and the estimated camera positions.
-
-
----
-
-### (Alternative) Manual Step-by-Step Execution
-
-If you prefer to run the steps manually to debug or inspect intermediate files:
-
-1. **Extract 2D Keypoints (RTMPose)**
 ```bash
-python pose/rtmlib_inference.py \
-    --video_dir demo/ \
-    --output_dir output/demo_calibration \
-    --aid 1 --pid 1 --gid 1 \
-    --subset_name raw_rtm \
-    --device cuda
+bash scripts/calibrate.sh \
+    demo \
+    demo/Calib_scene.toml \
+    output/demo_rtmpose \
+    cuda balanced \
+    --height 1.78 \
+    --ref_frame 5
 ```
 
-2. **Generate Camera JSON File**
+#### Positional arguments
+
+| Position | Description |
+|----------|-------------|
+| 1 | Folder containing the synchronized videos |
+| 2 | Path to the intrinsics TOML |
+| 3 | Output directory (will be created) |
+| 4 | `cuda` or `cpu` (optional, default `cuda`) |
+| 5 | `lightweight` / `balanced` / `performance` (optional, RTMPose only) |
+
+#### Named flags
+
+| Flag | Default | Effect |
+|------|---------|--------|
+| `--pose_engine <eng>` | `rtmpose` | `metrabs` (recommended) or `rtmpose` |
+| `--height <m>` | — | Subject height in **meters** (e.g. `1.84`). Enables step 7 (scaling + orientation). |
+| `--ref_frame <n>` | — | Frame where the subject is standing straight, feet flat. Used to define the floor and to scale to metric units. Must be inside `[start_frame, end_frame]`. |
+| `--start_frame <n>` | `0` | First frame to process. |
+| `--end_frame <n>` | last | Last frame to process. |
+| `--frame_skip <n>` | `10` | Subsample interval for BA. Lower = denser optimization, slower. `5` is a good default with MeTRAbs. |
+| `--conf_threshold <t>` | `0.5` | Minimum 2D keypoint confidence. Lower = more data, more noise. |
+| `--ref_cam <id>` | *(auto)* | 1-indexed CAM ID to force as Procrustes reference. Default: auto-select the camera with the lowest mean Procrustes residual. |
+| `--no_auto_outlier_drop` | off | Disable the per-camera outlier-frame drop step between linear and BA. |
+| `--outlier_abs_px <p>` | `50` | Absolute reproj threshold for the outlier drop. |
+| `--outlier_x_median <m>` | `5` | Multiplier above per-camera median for the outlier drop (frame must exceed **both** thresholds to be dropped). |
+| `--save_video` | off | Save 2D pose overlay video (RTMPose only). |
+
+#### Full real-world example
+
 ```bash
-python tools/create_cameras_from_toml.py \
-    --toml demo/Calib_scene.toml \
-    --output_dir output/demo_calibration/raw_rtm \
-    --gid 1 \
-    --cam_names "cam1" "cam2" "cam3" "cam4" # Adjust to match your TOML sections
+bash scripts/calibrate.sh \
+    input/my_session \
+    input/my_session/Calib_scene.toml \
+    output/my_session \
+    cuda balanced \
+    --pose_engine metrabs \
+    --start_frame 650 --end_frame 1500 \
+    --ref_frame 1415 \
+    --height 1.84 \
+    --frame_skip 5
 ```
 
-3. **Lift to 3D Keypoints (VideoPose3D)**
+This processes frames 650–1500, calibrates with MeTRAbs, scales the scene using a 1.84 m subject standing at frame 1415.
+
+### 3. Check the results
+
+The pipeline prints a summary table at the end with the MRE (Mean Reprojection Error) for each calibration stage; the best one is starred. All outputs land in `<output_dir>/results/`:
+
+| File | Description |
+|------|-------------|
+| `Calib_scene_calibrated.toml` | Final calibration (metric, gravity-aligned) — ready for Pose2Sim / OpenCap / OpenSim. |
+| `3d_skeleton_FINAL.trc` | Triangulated 3D skeleton in TRC format. |
+| `camera/visu_3d_FINAL.gif` | Animated 3D viz with live MRE metrics overlaid (see the README hero image). |
+| `camera/visu_3d_linear_1_0.gif` | Intermediate viz after the linear init only. |
+| `camera/visu_3d_linear_1_0_ba.gif` | Intermediate viz after BA, before scaling. |
+| `MRE_visualizations/` | Per-camera best/worst reprojection images — diagnostic for any cam that stays high after BA. |
+| `ba_cost_live_iter*.png` | Bundle Adjustment convergence curves. |
+
+### 4. Diagnose / improve
+
+If one camera lags behind the others (e.g. MRE 9 px while the rest are at 5 px):
+
+- Look at its `MRE_visualizations/<calib>/camX_worst.png` — if the reprojected points are systematically offset, the camera's K is wrong; re-calibrate it.
+- Check the Procrustes log line for that camera in the linear init. **Low Procrustes residual (≤ ~100 mm) but high MRE ⇒ intrinsics issue** (the 3D shape from MeTRAbs is fine, the projection back to 2D is biased by a wrong K).
+- The auto-outlier drop writes per-video `<video>.dropped.json` files in your input folder — check them to see which frames were flagged.
+
+If the auto-selected reference camera doesn't seem right (e.g. you know cam 3 has the cleanest view of the subject), force it:
+
 ```bash
-python pose/inference.py \
-    --prefix output/demo_calibration \
-    --aid 1 --pid 1 --gid 1 \
-    --target raw_rtm \
-    --dataset Custom \
-    --model pretrained_h36m_detectron_coco.bin
+... --ref_cam 3
 ```
 
-4. **Calibrate Camera Extrinsics**
-```bash
-python scripts/run_calib_linear.py output/demo_calibration 1 1 1 raw_rtm 10 Custom
-python scripts/run_ba.py output/demo_calibration 1 1 1 10 1. 100000. linear_1_0 Custom false true
-```
+### 5. Caching
 
-5. **Scale and Align to True World Coordinates**
-```bash
-python postprocessing/scale_scene.py \
-    --prefix output/demo_calibration \
-    --calib linear_1_0_ba \
-    --height 1.80 \
-    --frame_idx 5 \
-    --subset raw_rtm \
-    --input_toml demo/Calib_scene.toml \
-    --export_toml output/demo_calibration/results/Calib_scene_calibrated.toml \
-    --video_dir demo/
-```
+When using MeTRAbs, pose extraction results are cached in the output dir. Re-runs with the **same frame range** skip inference automatically (~2 min/cam saved).
 
-6. **Visualization**
-```bash
-python postprocessing/visualize_results.py \
-    --prefix output/demo_calibration \
-    --subset raw_rtm \
-    --calib linear_1_0_ba_oriented_scaled \
-    --dataset Custom \
-    --output output/demo_calibration/results/camera/visu_3d.mp4
-```
+> The cache only checks the frame range, **not** the intrinsics. If you change the TOML, delete the cached poses to force re-extraction:
+> ```bash
+> rm -rf output/my_session/noise_1_0/2d_joint output/my_session/noise_1_0/3d_joint
+> ```
+
+For deeper details (BA design, joint formats, etc.) see the main [README](README.md).
